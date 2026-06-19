@@ -191,6 +191,7 @@ def regenerate_card(
     package_name: str,
     index: int,
     extra_brief: str = "",
+    metaphor: str = "",
     config: dict | None = None,
     config_path: Path | None = None,
     project_root: Path = PROJECT_ROOT,
@@ -216,6 +217,13 @@ def regenerate_card(
 
     if extra_brief and extra_brief.strip():
         config["extra_brief"] = extra_brief.strip()
+
+    # 用户编辑了画面提示词：覆盖该卡的视觉隐喻，清掉旧的创意层细节避免冲突。
+    if metaphor and metaphor.strip():
+        vs = cards[index - 1].setdefault("visual_style", {})
+        vs["metaphor"] = metaphor.strip()
+        for key in ("composition", "details", "accent_focus"):
+            vs.pop(key, None)
 
     renderer = DirectCardRenderer(config=config, project_root=project_root)
     log(f"重新生成第 {index} 张卡…")

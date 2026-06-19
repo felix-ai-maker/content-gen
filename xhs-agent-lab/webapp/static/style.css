@@ -99,6 +99,7 @@ button.linkbtn { background: #e4ded2; color: #1c1b19; padding: 5px 12px; font-si
   border-radius: 6px;
 }
 .regen-box { display: flex; flex-direction: column; gap: 5px; }
+.regen-box.hidden { display: none; }
 .regen-box textarea { font-size: 12px; padding: 6px; }
 .regen-go { padding: 5px 10px; font-size: 12px; }
 .regen-status { font-size: 11px; color: #666b73; }

@@ -36,7 +36,7 @@ function renderCards(name, cards) {
         <img id="img-${idx}" src="${url}" title="${c}" onclick="window.open('${url}')" />
         <button class="regen-toggle" data-idx="${idx}">✏️ 改这张</button>
         <div class="regen-box hidden" id="regenbox-${idx}">
-          <textarea id="regen-${idx}" rows="2" placeholder="只改这张的指令，例如：标题再大些、换个主视觉、配色更克制…"></textarea>
+          <textarea id="regen-${idx}" rows="4" placeholder="点开后显示这张图的画面提示词，在此基础上改，再点重生成…"></textarea>
           <button class="regen-go" data-idx="${idx}">重生成这张</button>
           <span class="regen-status" id="regenst-${idx}"></span>
         </div>
@@ -44,7 +44,18 @@ function renderCards(name, cards) {
     })
     .join("");
   document.querySelectorAll(".regen-toggle").forEach((b) => {
-    b.onclick = () => $(`regenbox-${b.dataset.idx}`).classList.toggle("hidden");
+    b.onclick = async () => {
+      const idx = b.dataset.idx;
+      const box = $(`regenbox-${idx}`);
+      box.classList.toggle("hidden");
+      const ta = $(`regen-${idx}`);
+      // 展开且还没填过时，预填这张图当前的画面提示词
+      if (!box.classList.contains("hidden") && !ta.value) {
+        ta.value = "（加载提示词中…）";
+        const p = await fetch(`/api/packages/${encodeURIComponent(name)}/cards/${idx}/prompt`).then((r) => r.json());
+        ta.value = p.prompt || "";
+      }
+    };
   });
   document.querySelectorAll(".regen-go").forEach((b) => {
     b.onclick = () => regenOne(name, parseInt(b.dataset.idx, 10), b);
@@ -55,11 +66,11 @@ async function regenOne(name, idx, btn) {
   btn.disabled = true;
   const st = $(`regenst-${idx}`);
   st.textContent = "提交中…";
-  const extra = $(`regen-${idx}`).value;
+  const edited = $(`regen-${idx}`).value;
   const res = await fetch(`/api/packages/${encodeURIComponent(name)}/cards/${idx}/regenerate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ extra_brief: extra }),
+    body: JSON.stringify({ metaphor: edited }),
   }).then((r) => r.json());
   if (!res.task_id) {
     st.textContent = "提交失败";

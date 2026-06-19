@@ -38,6 +38,7 @@ class GenerateRequest(BaseModel):
 
 class RegenRequest(BaseModel):
     extra_brief: str = ""
+    metaphor: str = ""
 
 
 def _run_task(task_id: str, params: dict) -> None:
@@ -159,6 +160,26 @@ def api_prompts() -> list[dict]:
     return list(reversed(rows))
 
 
+@app.get("/api/packages/{name}/cards/{index}/prompt")
+def api_card_prompt(name: str, index: int) -> dict:
+    """返回这张卡当前的画面提示词（视觉隐喻 + 创意层细节），供前端预填编辑。"""
+    pkg = _safe_pkg(name)
+    import json as _json
+
+    cards = _json.loads((pkg / "cards_used.json").read_text(encoding="utf-8")).get("cards", [])
+    if not 1 <= index <= len(cards):
+        raise HTTPException(status_code=404, detail="卡片不存在")
+    vs = cards[index - 1].get("visual_style", {}) or {}
+    parts = []
+    if vs.get("metaphor"):
+        parts.append(str(vs["metaphor"]))
+    if vs.get("composition"):
+        parts.append("构图：" + str(vs["composition"]))
+    if vs.get("details"):
+        parts.append("细节：" + str(vs["details"]))
+    return {"prompt": "\n".join(parts)}
+
+
 @app.post("/api/packages/{name}/cards/{index}/regenerate")
 def api_regenerate(name: str, index: int, req: RegenRequest) -> dict:
     _safe_pkg(name)  # 校验包存在
@@ -173,7 +194,9 @@ def api_regenerate(name: str, index: int, req: RegenRequest) -> dict:
             task["logs"].append(str(msg))
 
         try:
-            task["result"] = regenerate_card(name, index, extra_brief=req.extra_brief, log=log)
+            task["result"] = regenerate_card(
+                name, index, extra_brief=req.extra_brief, metaphor=req.metaphor, log=log
+            )
             task["status"] = "done"
         except Exception as exc:  # noqa: BLE001 - 回传给前端
             task["error"] = str(exc)
