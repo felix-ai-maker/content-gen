@@ -187,6 +187,13 @@ def maybe_push_telegram(config: dict, output_dir: Path, no_push: bool = False, l
         return False
 
 
+def _append_prompt_log(project_root: Path, entry: dict) -> None:
+    """每次生成把输入提示词追加到 prompts_log.jsonl，供后续优化复盘。"""
+    log_path = project_root / "prompts_log.jsonl"
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
 # --------------------------------------------------------------------------- #
 # 核心：生成发布包
 # --------------------------------------------------------------------------- #
@@ -265,6 +272,20 @@ def generate_package(
 
     pushed = maybe_push_telegram(config, output_dir, no_push=not push, log=log)
 
+    inputs = {
+        "timestamp": datetime.now(ZoneInfo(timezone)).isoformat(timespec="seconds"),
+        "topic": topic,
+        "copy_text": copy_text,
+        "style": style or "",
+        "mode": mode,
+        "extra_brief": extra_brief or "",
+    }
+    write_json(output_dir / "inputs.json", inputs)
+    _append_prompt_log(
+        project_root,
+        {**inputs, "package_name": output_dir.name, "score": quality.score},
+    )
+
     preset = style_plan.get("style_preset") or {}
     return {
         "output_dir": str(output_dir),
@@ -280,4 +301,5 @@ def generate_package(
         "cards": [path.name for path in rendered_paths],
         "quality": {"score": quality.score, "warnings": list(quality.warnings)},
         "pushed": pushed,
+        "inputs": inputs,
     }

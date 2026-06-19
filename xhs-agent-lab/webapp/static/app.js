@@ -40,6 +40,19 @@ function renderInto(name, cards, xhs, wechat) {
   $("result").classList.remove("hidden");
 }
 
+function renderInputs(inp) {
+  if (!inp || !inp.topic) {
+    $("inputs").innerHTML = "";
+    return;
+  }
+  const parts = [`选题：${inp.topic}`];
+  if (inp.style) parts.push(`风格：${inp.style}`);
+  if (inp.mode) parts.push(`模式：${inp.mode}`);
+  if (inp.extra_brief) parts.push(`额外指令：${inp.extra_brief}`);
+  if (inp.copy_text) parts.push(`素材：${inp.copy_text.slice(0, 40)}…`);
+  $("inputs").innerHTML = "📝 本次提示词 — " + parts.join("　·　");
+}
+
 // 是否显示「回到最近生成」返回条
 function updateBackbar() {
   const show = viewing !== "current" && (activeResult || generating);
@@ -51,6 +64,7 @@ function showCurrent() {
   updateBackbar();
   if (activeResult) {
     renderInto(activeResult.package_name, activeResult.cards, activeResult.xhs_md, activeResult.wechat_md);
+    renderInputs(activeResult.inputs);
   } else if (generating) {
     // 还没生成完：不显示旧结果，提示去看进度
     $("result").classList.add("hidden");
@@ -64,6 +78,8 @@ async function showPackage(name) {
   if (!pkg) return;
   const docs = await fetch(`/api/packages/${encodeURIComponent(name)}/docs`).then((r) => r.json());
   renderInto(name, pkg.cards, docs.xhs, docs.wechat);
+  const inp = await fetch(`/api/packages/${encodeURIComponent(name)}/inputs`).then((r) => r.json());
+  renderInputs(inp);
   updateBackbar();
 }
 
@@ -81,6 +97,7 @@ async function poll(taskId) {
     if (viewing === "current") {
       $("status").textContent = summary;
       renderInto(r.package_name, r.cards, r.xhs_md, r.wechat_md);
+      renderInputs(r.inputs);
     } else {
       // 用户正在看历史，不抢走视图，只提示 + 让返回条可用
       $("status").textContent = summary + "（点「回到最近生成」查看）";

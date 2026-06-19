@@ -76,6 +76,8 @@ button.linkbtn { background: #e4ded2; color: #1c1b19; padding: 5px 12px; font-si
 .hidden { display: none; }
 
 .meta { font-size: 13px; color: #1f4e3d; margin: 14px 0 8px; }
+.inputs { font-size: 12px; color: #666b73; background: #f4f1ea; border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; }
+.inputs:empty { display: none; }
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));

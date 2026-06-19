@@ -125,6 +125,36 @@ def api_docs(name: str) -> dict:
     return {"xhs": _read("小红书正文.md"), "wechat": _read("公众号文章.md")}
 
 
+@app.get("/api/packages/{name}/inputs")
+def api_inputs(name: str) -> dict:
+    pkg = _safe_pkg(name)
+    path = pkg / "inputs.json"
+    if not path.exists():
+        return {}
+    import json as _json
+
+    return _json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.get("/api/prompts")
+def api_prompts() -> list[dict]:
+    """全局提示词日志（最近在前），供复盘优化。"""
+    import json as _json
+
+    log_path = PROJECT_ROOT / "prompts_log.jsonl"
+    if not log_path.exists():
+        return []
+    rows = []
+    for line in log_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            try:
+                rows.append(_json.loads(line))
+            except ValueError:
+                continue
+    return list(reversed(rows))
+
+
 @app.post("/api/packages/{name}/push")
 def api_push(name: str) -> dict:
     pkg = _safe_pkg(name)
