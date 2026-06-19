@@ -1,0 +1,184 @@
+timezone: Asia/Shanghai
+
+brand:
+  name: "交易 Agent 实验室"
+
+canvas:
+  width: 1080
+  height: 1440
+  margin: 88
+  # 内容页左侧正文阅读列宽度；右侧保留给系统化设计元素。
+  content_width: 620
+  cover_title_width: 760
+  bullet_font_size: 34
+  # AI 背景只做轻微柔化，再与本地排版合成；数值越低，AI 视觉越明显。
+  ai_background_blur: 1
+  ai_background_blend: 0.29
+  ai_background_color: 0.88
+  ai_background_contrast: 1.16
+  ai_subject_alpha: 238
+  ai_subject_top_clean: 166
+  ai_subject_top_fade: 180
+  cover_ai_visible_start: 0.46
+  cover_ai_solid_start: 0.62
+  content_ai_visible_start: 0.54
+  content_ai_solid_start: 0.68
+
+colors:
+  background: "#F7F7F5"
+  text: "#111111"
+  muted: "#666B73"
+  accent: "#1F6FFF"
+  hairline: "#DADDE2"
+  grid: "#ECEEF2"
+  ghost: "#E8EBF0"
+
+font:
+  # 按顺序查找。macOS 默认优先用 PingFang；Linux 可换成 Noto Sans CJK。
+  regular:
+    - "/System/Library/Fonts/PingFang.ttc"
+    - "/System/Library/Fonts/Hiragino Sans GB.ttc"
+    - "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+  bold:
+    - "/System/Library/Fonts/PingFang.ttc"
+    - "/System/Library/Fonts/Hiragino Sans GB.ttc"
+    - "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
+
+image_model:
+  # 默认使用 Vertex AI / Gemini 图像模型生成无文字背景；
+  # 文字仍由 Pillow 本地排版，保证中文内容准确。
+  enabled: true
+  provider: vertex_gemini
+  # Nano Banana 2 / Gemini 3.1 Flash Image
+  model: gemini-3.1-flash-image
+  project: gen-lang-client-0729475539
+  location: global
+  api_version: v1
+  api_key_env: GOOGLE_API_KEY
+  # 拉大请求间隔，躲开图像模型「每分钟请求数」瞬时上限（429）。
+  request_interval_seconds: 20
+  quota_retry_attempts: 2
+  quota_retry_seconds: 75
+  # 撞 IMAGE_RECITATION（版权复述安全过滤、不出图也不扣费）时，
+  # 自动给 prompt 追加「更抽象、更原创」的提示并重试的总次数。
+  recitation_retry_attempts: 3
+  # --direct-ai-card 模式默认套用的视觉风格模板（见下方 style_presets）。
+  # 不指定 --style 且选题没匹配到关键词时，回退到这一套。
+  default_style: magazine_editorial
+  # 先重点提高封面稳定性；内容页如需更高审美稳定性，可改成 2。
+  cover_candidates_per_card: 2
+  content_candidates_per_card: 1
+  # 如果你要用完整 Vertex AI 身份认证，设置环境变量：
+  # export GOOGLE_CLOUD_PROJECT="你的 GCP 项目 ID"
+  # export GOOGLE_CLOUD_LOCATION="global"
+  # gcloud auth application-default login
+  #
+  # 如果你用的是 Vertex AI Express / API Key，设置：
+  # export GOOGLE_API_KEY="你的 Vertex/Gemini API Key"
+  #
+  # 可选 provider:
+  # - vertex_gemini: Gemini 图像模型，默认推荐
+  # - vertex_imagen: Imagen 4，需把 model 改成 imagen-4.0-generate-001 等
+  # - openai: 兼容旧配置，需 OPENAI_API_KEY 和 openai 包
+
+# 视觉风格模板（仅 --direct-ai-card 模式生效）。
+# 决定卡片「长什么样」（配色 / 排版 / 隐喻取向），与 style_director 的领域主题正交。
+# 用 --style <key> 手动指定；不指定时按 match_keywords 自动选，无命中用 image_model.default_style。
+style_presets:
+  magazine_editorial:
+    name: "杂志编辑精致"
+    match_keywords: ["复盘", "研究", "判断", "方法", "系统", "笔记", "观点", "原则"]
+    palette:
+      paper: "#F3EFE6"
+      ink: "#1C1B19"
+      accent: "#1F4E3D"
+      support: "#9A8F7D"
+    typography: "强字体层级：超大号高质感标题、克制的小号正文、清晰的页码与栏目小字；字距讲究、对齐到网格。"
+    art_direction: "高级杂志编辑版式：基线网格、大边距留白、分栏结构、哑光纸印刷质感、细分隔线；配色克制有质感（米白纸 + 油墨黑 + 一个墨绿强调色），不要黑白灰加科技蓝。主视觉是优雅的编辑式静物或抽象印刷构成，不要办公纸堆、文件夹、档案袋、桌面证据线那一套。"
+  bold_xhs:
+    name: "小红书爆款封面"
+    match_keywords: ["千万别", "后悔", "避坑", "真相", "一定要", "终于", "震惊"]
+    palette:
+      paper: "#FBF3E4"
+      ink: "#171513"
+      accent: "#E2452F"
+      support: "#1F4E3D"
+    typography: "超大号标题撑满视觉、关键词高亮或描边、强对比；标题一眼读完，信息层级分明。"
+    art_direction: "小红书信息流爆款封面：大面积高饱和色块背景、超大冲击力标题、强对比、留白少而有张力，第一眼就跳出来。视觉简洁有力，一个鲜明主体或符号，不要复杂场景。"
+  warm_editorial:
+    name: "暖色编辑"
+    match_keywords: ["生活", "习惯", "情绪", "成长", "陪伴", "温柔", "心态"]
+    palette:
+      paper: "#F2E7D5"
+      ink: "#33291E"
+      accent: "#C0673A"
+      support: "#7A8C6B"
+    typography: "温润的字体层级，标题有手感、正文舒朗，不要冷硬几何。"
+    art_direction: "暖色编辑插画风：暖米与赭石色调、柔和光影、手绘或插画质感的人性化画面，有温度有生活气，不要冷硬科技感、不要纯几何性冷淡。"
+  signature_mono:
+    name: "极简科技蓝"
+    match_keywords: []
+    palette:
+      paper: "#F7F7F5"
+      ink: "#111111"
+      accent: "#1F6FFF"
+      support: "#666B73"
+    typography: "克制的字体层级，标题有冲击但不过大，正文不像口号。"
+    art_direction: "黑、白、灰为主，科技蓝只做点睛。不要满屏蓝线、不要大面积霓虹、不要赛博感。允许纸张、档案、桌面、透明界面、工具、门、天平、证据线、留痕轨迹等元素，但必须服务于本页观点。"
+
+# 文本创意层（可选）：用 DeepSeek 等文本大模型为每页创意生成「视觉 brief」
+# （隐喻 + 构图重点 + 细节 + 配色侧重），再喂给图像模型。仅 --direct-ai-card 生效。
+# 关闭时、或调用失败/输出不合格时，自动回退 style_director 的规则隐喻库。
+creative_llm:
+  enabled: true             # 已启用：需 export DEEPSEEK_API_KEY；无 key 时自动回退规则库
+  provider: deepseek
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-pro"  # DeepSeek V4 Pro
+  api_key_env: DEEPSEEK_API_KEY
+  timeout_seconds: 60
+  temperature: 0.9
+
+visual_rules:
+  avoid:
+    - cheap finance influencer style
+    - candlestick chart background
+    - red green stock movement colors
+    - gold coin
+    - bull bear illustration
+    - noisy trading dashboard
+
+design_prompt:
+  principles:
+    - "Xiaohongshu thumbnail strength: one clear focal object, fast visual read, high contrast hierarchy"
+    - "editorial hierarchy, not decorative wallpaper"
+    - "large negative space for Chinese typography, but with a visibly designed technology scene"
+    - "asymmetric composition with a strong right-side sci-tech focal structure"
+    - "high trust, research-lab calm, premium technology publication"
+    - "finance audience credibility without stock-market cliches"
+    - "subtle narrative difference between cover, problem, role, boundary, loop, restraint, and next-step pages"
+  materials:
+    - "matte paper grain"
+    - "frosted translucent glass planes"
+    - "soft architectural shadows"
+    - "thin blueprint hairlines"
+    - "visible technical grid with depth"
+    - "dimensional layered depth"
+    - "glassmorphism interface planes"
+    - "electric-blue optical traces"
+
+content:
+  hashtags:
+    - "#交易Agent"
+    - "#AI工作流"
+    - "#量化交易"
+    - "#个人知识系统"
+    - "#自动化"
+  style:
+    voice: "第一人称、克制、具体、少口号"
+    avoid:
+      - "赋能"
+      - "降本增效"
+      - "多维度"
+      - "深度解析"
+      - "建议收藏"
+      - "干货满满"
