@@ -163,6 +163,9 @@ class DirectCardRenderer:
                 f"强调色落点：{style.get('accent_focus', '')}"
             )
 
+        extra_brief = (self.config.get("extra_brief") or "").strip()
+        extra_block = f"额外创意要求（优先满足）：{extra_brief}" if extra_brief else ""
+
         return textwrap.dedent(
             f"""
             请直接生成一张完整的竖版社媒图文卡片，尺寸 {self.width}×{self.height}。
@@ -223,6 +226,7 @@ class DirectCardRenderer:
             - 不要给物件命名，不要给纸张写标题，不要给线条写说明，不要给系列加自创名称。
             - 不要把 prompt 里的说明词画出来。
             - 不要让所有页面长得一模一样。
+            {extra_block}
             """
         ).strip()
 

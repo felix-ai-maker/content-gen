@@ -1,163 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import json
-import os
-import re
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
-from card_renderer import CardRenderer
-from content_writer import build_wechat_article, build_xhs_post
-from copy_pipeline import (
-    build_cards_from_copy,
-    build_publish_checklist,
-    read_copy_input,
-    run_quality_checks,
-)
-from direct_card_renderer import DirectCardRenderer
-from style_director import apply_style_plan
-
-try:
-    import yaml
-except ModuleNotFoundError:  # pragma: no cover - fallback for fresh local Python installs.
-    yaml = None
-
-
-PROJECT_ROOT = Path(__file__).resolve().parent
-
-
-def load_config(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as f:
-        text = f.read()
-    if yaml is not None:
-        return yaml.safe_load(text) or {}
-    return load_simple_yaml(text)
-
-
-def load_simple_yaml(text: str) -> dict:
-    lines = text.splitlines()
-    root: dict = {}
-    stack: list[tuple[int, dict | list]] = [(-1, root)]
-
-    for index, raw_line in enumerate(lines):
-        line = strip_yaml_comment(raw_line).rstrip()
-        if not line.strip():
-            continue
-
-        indent = len(line) - len(line.lstrip(" "))
-        content = line.strip()
-        while stack and stack[-1][0] >= indent:
-            stack.pop()
-        parent = stack[-1][1]
-
-        if content.startswith("- "):
-            if not isinstance(parent, list):
-                raise ValueError("Fallback YAML parser expected a list parent.")
-            parent.append(parse_yaml_scalar(content[2:].strip()))
-            continue
-
-        key, sep, value = content.partition(":")
-        if not sep:
-            continue
-        key = key.strip()
-        value = value.strip()
-        if value:
-            if not isinstance(parent, dict):
-                raise ValueError("Fallback YAML parser expected a dict parent.")
-            parent[key] = parse_yaml_scalar(value)
-            continue
-
-        container: dict | list = [] if next_yaml_child_is_list(lines, index, indent) else {}
-        if not isinstance(parent, dict):
-            raise ValueError("Fallback YAML parser expected a dict parent.")
-        parent[key] = container
-        stack.append((indent, container))
-    return root
-
-
-def strip_yaml_comment(line: str) -> str:
-    quote: str | None = None
-    for index, char in enumerate(line):
-        if char in {"'", '"'}:
-            quote = None if quote == char else char
-        if char == "#" and quote is None:
-            return line[:index]
-    return line
-
-
-def next_yaml_child_is_list(lines: list[str], current_index: int, parent_indent: int) -> bool:
-    for candidate in lines[current_index + 1 :]:
-        candidate = strip_yaml_comment(candidate).rstrip()
-        if not candidate.strip():
-            continue
-        indent = len(candidate) - len(candidate.lstrip(" "))
-        if indent <= parent_indent:
-            return False
-        return candidate.strip().startswith("- ")
-    return False
-
-
-def parse_yaml_scalar(value: str) -> object:
-    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
-        return value[1:-1]
-    lowered = value.lower()
-    if lowered in {"true", "false"}:
-        return lowered == "true"
-    try:
-        return int(value)
-    except ValueError:
-        return value
-
-
-def load_cards(project_root: Path, cards_file: str | None, topic: str, copy_text: str, config: dict) -> tuple[list[dict], str]:
-    explicit_cards = Path(cards_file).expanduser().resolve() if cards_file else None
-    default_cards = project_root / "cards.json"
-
-    if explicit_cards:
-        if not explicit_cards.exists():
-            raise FileNotFoundError(f"Cards file not found: {explicit_cards}")
-        return read_cards_json(explicit_cards), explicit_cards.name
-    if default_cards.exists():
-        return read_cards_json(default_cards), default_cards.name
-    if copy_text.strip():
-        return build_cards_from_copy(topic=topic, copy_text=copy_text, config=config), "auto-from-copy"
-
-    sample_cards = project_root / "sample_cards.json"
-    return read_cards_json(sample_cards), sample_cards.name
-
-
-def read_cards_json(cards_path: Path) -> list[dict]:
-    with cards_path.open("r", encoding="utf-8") as f:
-        payload = json.load(f)
-
-    cards = payload.get("cards", payload) if isinstance(payload, dict) else payload
-    if not isinstance(cards, list) or not cards:
-        raise ValueError(f"{cards_path.name} must contain a non-empty cards list.")
-    return cards
-
-
-def safe_topic_name(topic: str, max_len: int = 48) -> str:
-    normalized = re.sub(r"[\\/:*?\"<>|#]+", "", topic).strip()
-    normalized = re.sub(r"\s+", " ", normalized)
-    normalized = normalized.strip(" .。？?！!")
-    return normalized[:max_len] or "未命名选题"
-
-
-def make_output_dir(project_root: Path, topic: str, timezone: str) -> Path:
-    today = datetime.now(ZoneInfo(timezone)).strftime("%Y-%m-%d")
-    output_dir = project_root / "dist" / f"{today}_{safe_topic_name(topic)}"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    return output_dir
-
-
-def write_markdown(path: Path, text: str) -> None:
-    path.write_text(text.rstrip() + "\n", encoding="utf-8")
-
-
-def write_json(path: Path, payload: object) -> None:
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+from pipeline import PROJECT_ROOT, generate_package
 
 
 def parse_args() -> argparse.Namespace:
@@ -195,127 +41,39 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def maybe_push_telegram(config: dict, output_dir: Path, no_push: bool) -> None:
-    tg = config.get("telegram") or {}
-    if no_push or not tg.get("enabled"):
-        return
-    token = os.getenv(tg.get("bot_token_env", "TELEGRAM_BOT_TOKEN"))
-    chat_id = os.getenv(tg.get("chat_id_env", "TELEGRAM_CHAT_ID"))
-    if not token or not chat_id:
-        print("（未设置 Telegram 凭据，跳过推送；export TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 后自动推送）")
-        return
-    try:
-        from push_telegram import push
-
-        push(output_dir, token, chat_id)
-        print("已推送到 Telegram。")
-    except Exception as exc:  # noqa: BLE001 - 推送失败不影响发布包
-        print(f"Telegram 推送失败（不影响发布包）：{exc}")
-
-
 def main() -> None:
     args = parse_args()
-    config_path = Path(args.config).resolve()
-    config = load_config(config_path)
     if args.local_bg and args.direct_ai_card:
-        raise ValueError("--local-bg 和 --direct-ai-card 不能同时使用。")
-    if args.local_bg:
-        config.setdefault("image_model", {})["enabled"] = False
-    copy_text, copy_source = read_copy_input(copy_text=args.copy, copy_file=args.copy_file)
-    cards, cards_source = load_cards(
-        project_root=PROJECT_ROOT,
-        cards_file=args.cards,
-        topic=args.topic,
-        copy_text=copy_text,
-        config=config,
-    )
+        raise SystemExit("--local-bg 和 --direct-ai-card 不能同时使用。")
+    mode = "local" if args.local_bg else ("direct" if args.direct_ai_card else "background")
+
     try:
-        cards, style_plan = apply_style_plan(
-            cards=cards,
+        result = generate_package(
             topic=args.topic,
-            copy_text=copy_text,
-            config=config,
-            style_override=args.style,
+            copy_text=args.copy or "",
+            copy_file=args.copy_file,
+            cards_file=args.cards,
+            style=args.style,
+            mode=mode,
+            push=not args.no_push,
+            config_path=Path(args.config).resolve(),
         )
     except ValueError as exc:
         raise SystemExit(str(exc))
 
-    timezone = config.get("timezone", "Asia/Shanghai")
-    output_dir = make_output_dir(PROJECT_ROOT, args.topic, timezone)
-
-    xhs_post = build_xhs_post(
-        topic=args.topic,
-        cards=cards,
-        config=config,
-        cards_source=cards_source,
-        copy_text=copy_text,
-    )
-    wechat_article = build_wechat_article(
-        topic=args.topic,
-        cards=cards,
-        config=config,
-        cards_source=cards_source,
-        copy_text=copy_text,
-    )
-    quality = run_quality_checks(
-        topic=args.topic,
-        cards=cards,
-        xhs_post=xhs_post,
-        wechat_article=wechat_article,
-        config=config,
-    )
-
-    write_markdown(
-        output_dir / "小红书正文.md",
-        xhs_post,
-    )
-    write_markdown(
-        output_dir / "公众号文章.md",
-        wechat_article,
-    )
-    write_json(output_dir / "cards_used.json", {"cards": cards})
-    write_json(output_dir / "style_plan.json", style_plan)
-    if copy_text.strip():
-        write_markdown(output_dir / "source_copy.md", copy_text)
-
-    if args.direct_ai_card:
-        renderer = DirectCardRenderer(config=config, project_root=PROJECT_ROOT)
-        rendered_paths = renderer.render_all(
-            cards=cards,
-            output_dir=output_dir,
-            topic=args.topic,
-            style_plan=style_plan,
-        )
-    else:
-        renderer = CardRenderer(config=config, project_root=PROJECT_ROOT)
-        rendered_paths = renderer.render_all(cards=cards, output_dir=output_dir, topic=args.topic)
-    write_markdown(
-        output_dir / "发布清单.md",
-        build_publish_checklist(
-            topic=args.topic,
-            cards_source=cards_source,
-            copy_source=copy_source,
-            rendered_count=len(rendered_paths),
-            quality=quality,
-        ),
-    )
-
-    print(f"发布包已生成：{output_dir}")
-    print(f"卡片来源：{cards_source}")
-    print(f"视觉主题：{style_plan.get('name')} / {style_plan.get('theme')}")
-    print(f"出图模式：{'Nano Banana 直接成品图' if args.direct_ai_card else '本地排版 + AI 视觉层'}")
-    if args.direct_ai_card:
-        preset = style_plan.get("style_preset") or {}
-        print(f"视觉风格：{preset.get('name', '')}（{preset.get('key', '')}）")
-    print(f"低 AI 味评分：{quality.score}/100")
-    if quality.warnings:
+    print(f"发布包已生成：{result['output_dir']}")
+    print(f"卡片来源：{result['cards_source']}")
+    print(f"视觉主题：{result['style_name']} / {result['style_theme']}")
+    print(f"出图模式：{'Nano Banana 直接成品图' if mode == 'direct' else '本地排版 + AI 视觉层'}")
+    if mode == "direct":
+        print(f"视觉风格：{result['style_preset_name']}（{result['style_preset']}）")
+    print(f"低 AI 味评分：{result['quality']['score']}/100")
+    if result["quality"]["warnings"]:
         print("发布前建议：")
-        for warning in quality.warnings:
+        for warning in result["quality"]["warnings"]:
             print(f"- {warning}")
-    for path in rendered_paths:
-        print(f"- {path.name}")
-
-    maybe_push_telegram(config, output_dir, args.no_push)
+    for name in result["cards"]:
+        print(f"- {name}")
 
 
 if __name__ == "__main__":

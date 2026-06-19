@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>内容生成系统</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>内容生成系统</h1>
+    <span class="sub">交易 Agent 实验室 · 本地版</span>
+  </header>
+
+  <main>
+    <section class="panel form">
+      <h2>① 输入</h2>
+      <label>选题
+        <input id="topic" type="text" placeholder="例如：我为什么要搭一个自己的交易 Agent？" />
+      </label>
+      <label>素材 / 原始想法（可选，自动拆卡）
+        <textarea id="copy" rows="5" placeholder="粘贴今天的想法、复盘、行情观察…"></textarea>
+      </label>
+      <label>视觉风格
+        <select id="style"></select>
+      </label>
+      <label>出图模式
+        <select id="mode">
+          <option value="local">草稿（本地排版，省配额，最快）</option>
+          <option value="direct">正式（Nano Banana 整卡直出 + DeepSeek 创意）</option>
+          <option value="background">本地排版 + AI 背景</option>
+        </select>
+      </label>
+      <label>额外创意指令（可选，调提示词优化画面）
+        <textarea id="extra" rows="2" placeholder="例如：多一点手绘质感、主视觉用暖光、构图更大胆…"></textarea>
+      </label>
+      <label class="row"><input id="push" type="checkbox" /> 生成后推送到 Telegram</label>
+      <button id="gen">开始生成</button>
+    </section>
+
+    <section class="panel output">
+      <h2>② 进度 / 结果</h2>
+      <div id="status" class="status">填好左边，点「开始生成」。</div>
+      <pre id="logs" class="logs"></pre>
+
+      <div id="result" class="result hidden">
+        <div class="meta" id="meta"></div>
+        <div class="cards" id="cards"></div>
+        <div class="docs">
+          <div class="doc">
+            <div class="doc-head">📕 小红书正文 <button data-target="xhs" class="copy">复制</button></div>
+            <pre id="xhs"></pre>
+          </div>
+          <div class="doc">
+            <div class="doc-head">📰 公众号文章 <button data-target="wechat" class="copy">复制</button></div>
+            <pre id="wechat"></pre>
+          </div>
+        </div>
+        <button id="push-now" class="secondary">推送到 Telegram</button>
+      </div>
+    </section>
+  </main>
+
+  <section class="panel history">
+    <h2>历史发布包</h2>
+    <ul id="history"></ul>
+  </section>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
