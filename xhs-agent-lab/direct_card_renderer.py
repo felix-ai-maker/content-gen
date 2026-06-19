@@ -464,10 +464,9 @@ class DirectCardRenderer:
             return []
         short_items: list[str] = []
         for item in bullets[:1]:
-            text = str(item).strip()
-            if len(text) > 22:
-                text = text[:21].rstrip("，。；、 ") + "..."
-            short_items.append(text)
+            text = DirectCardRenderer._short_text(str(item).strip(), 26)
+            if text:
+                short_items.append(text)
         return short_items
 
     def _write_generation_meta(self, output_dir: Path) -> None:
