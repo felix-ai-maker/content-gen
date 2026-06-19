@@ -385,18 +385,18 @@ class DirectCardRenderer:
                 lines.append(str(card.get("badge")))
             lines.extend(title_lines)
             if card.get("subtitle"):
-                lines.append(self._short_text(str(card.get("subtitle")), 30))
+                lines.append(self._short_text(str(card.get("subtitle")), 38))
             # Cover chips tend to become oversized in native image text rendering.
             # Keep them in Markdown, but leave the cover visually cleaner.
         else:
             lines = [f"{index:02d}"]
             lines.extend(title_lines[:1])
             if card.get("highlight"):
-                lines.append(self._short_text(str(card.get("highlight")), 34))
+                lines.append(self._short_text(str(card.get("highlight")), 42))
             for bullet in bullets:
                 lines.append(str(bullet))
             if card.get("note"):
-                lines.append(self._short_text(str(card.get("note")), 28))
+                lines.append(self._short_text(str(card.get("note")), 34))
         lines.append(self.brand)
         return "\n".join(lines)
 
@@ -405,7 +405,14 @@ class DirectCardRenderer:
         normalized = str(text).strip()
         if len(normalized) <= max_chars:
             return normalized
-        return normalized[: max_chars - 1].rstrip("，。；、 ") + "。"
+        # 在上限附近截到最后一个标点边界，保证是完整子句，不留半个词 + 省略号。
+        window = normalized[: max_chars + 1]
+        for i in range(len(window) - 1, max(0, len(window) - 16), -1):
+            if window[i] in "，。；、！？,.;!?":
+                trimmed = window[: i + 1].rstrip("，、；,; ")
+                if trimmed:
+                    return trimmed
+        return normalized[:max_chars].rstrip("，。；、 ")
 
     @staticmethod
     def _title_lines(card: dict) -> list[str]:
