@@ -138,6 +138,16 @@ creative_llm:
   timeout_seconds: 60
   temperature: 0.9
 
+# Telegram 自动推送：生成发布包后把图文推到手机（纯发送，不影响别的 bot 接收）。
+# 凭据走环境变量，不要写进项目文件：
+#   export TELEGRAM_BOT_TOKEN="bot token"
+#   export TELEGRAM_CHAT_ID="你的 chat_id"
+# 没设凭据时自动跳过；单次想关掉用 main.py --no-push。
+telegram:
+  enabled: true
+  bot_token_env: TELEGRAM_BOT_TOKEN
+  chat_id_env: TELEGRAM_CHAT_ID
+
 visual_rules:
   avoid:
     - cheap finance influencer style

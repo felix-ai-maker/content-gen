@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -182,11 +183,34 @@ def parse_args() -> argparse.Namespace:
         help="指定视觉风格模板（见 config.yaml 的 style_presets，如 magazine_editorial / bold_xhs / warm_editorial）。仅 --direct-ai-card 生效；不指定时按选题自动选。",
     )
     parser.add_argument(
+        "--no-push",
+        action="store_true",
+        help="本次不推送到 Telegram（即使 config.telegram.enabled=true）。",
+    )
+    parser.add_argument(
         "--config",
         default=str(PROJECT_ROOT / "config.yaml"),
         help="品牌、颜色、字体与输出尺寸配置文件。",
     )
     return parser.parse_args()
+
+
+def maybe_push_telegram(config: dict, output_dir: Path, no_push: bool) -> None:
+    tg = config.get("telegram") or {}
+    if no_push or not tg.get("enabled"):
+        return
+    token = os.getenv(tg.get("bot_token_env", "TELEGRAM_BOT_TOKEN"))
+    chat_id = os.getenv(tg.get("chat_id_env", "TELEGRAM_CHAT_ID"))
+    if not token or not chat_id:
+        print("（未设置 Telegram 凭据，跳过推送；export TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 后自动推送）")
+        return
+    try:
+        from push_telegram import push
+
+        push(output_dir, token, chat_id)
+        print("已推送到 Telegram。")
+    except Exception as exc:  # noqa: BLE001 - 推送失败不影响发布包
+        print(f"Telegram 推送失败（不影响发布包）：{exc}")
 
 
 def main() -> None:
@@ -290,6 +314,8 @@ def main() -> None:
             print(f"- {warning}")
     for path in rendered_paths:
         print(f"- {path.name}")
+
+    maybe_push_telegram(config, output_dir, args.no_push)
 
 
 if __name__ == "__main__":
