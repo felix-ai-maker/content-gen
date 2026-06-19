@@ -1,5 +1,9 @@
 const $ = (id) => document.getElementById(id);
-let currentPackage = null;
+
+let currentPackage = null;   // result 区当前显示的包（用于推送）
+let activeResult = null;     // 最近一次「生成」完成的结果
+let generating = false;      // 是否有生成任务在跑
+let viewing = "current";     // "current"=看最近生成 / 或某个历史包名
 
 async function loadPresets() {
   const presets = await fetch("/api/presets").then((r) => r.json());
@@ -27,36 +31,65 @@ function renderCards(name, cards) {
     .join("");
 }
 
-async function showPackage(name) {
+function renderInto(name, cards, xhs, wechat) {
   currentPackage = name;
+  renderCards(name, cards);
+  $("xhs").textContent = xhs;
+  $("wechat").textContent = wechat;
+  $("meta").textContent = `发布包：${name}`;
+  $("result").classList.remove("hidden");
+}
+
+// 是否显示「回到最近生成」返回条
+function updateBackbar() {
+  const show = viewing !== "current" && (activeResult || generating);
+  $("backbar").classList.toggle("hidden", !show);
+}
+
+function showCurrent() {
+  viewing = "current";
+  updateBackbar();
+  if (activeResult) {
+    renderInto(activeResult.package_name, activeResult.cards, activeResult.xhs_md, activeResult.wechat_md);
+  } else if (generating) {
+    // 还没生成完：不显示旧结果，提示去看进度
+    $("result").classList.add("hidden");
+  }
+}
+
+async function showPackage(name) {
+  viewing = name;
   const pkgs = await fetch("/api/packages").then((r) => r.json());
   const pkg = pkgs.find((p) => p.name === name);
   if (!pkg) return;
-  renderCards(name, pkg.cards);
   const docs = await fetch(`/api/packages/${encodeURIComponent(name)}/docs`).then((r) => r.json());
-  $("xhs").textContent = docs.xhs;
-  $("wechat").textContent = docs.wechat;
-  $("meta").textContent = `发布包：${name}`;
-  $("result").classList.remove("hidden");
+  renderInto(name, pkg.cards, docs.xhs, docs.wechat);
+  updateBackbar();
 }
 
 async function poll(taskId) {
   const task = await fetch(`/api/tasks/${taskId}`).then((r) => r.json());
   $("logs").textContent = (task.logs || []).join("\n");
+
   if (task.status === "done") {
+    generating = false;
+    activeResult = task.result;
     const r = task.result;
-    $("status").textContent = `✅ 完成：${r.package_name}（${r.style_name || ""}）AI味 ${r.quality.score}/100${r.pushed ? " · 已推 Telegram" : ""}`;
-    currentPackage = r.package_name;
-    renderCards(r.package_name, r.cards);
-    $("xhs").textContent = r.xhs_md;
-    $("wechat").textContent = r.wechat_md;
-    $("meta").textContent = `发布包：${r.package_name}`;
-    $("result").classList.remove("hidden");
+    const summary = `✅ 完成：${r.package_name}（${r.style_name || ""}）AI味 ${r.quality.score}/100${r.pushed ? " · 已推 Telegram" : ""}`;
     $("gen").disabled = false;
     loadHistory();
+    if (viewing === "current") {
+      $("status").textContent = summary;
+      renderInto(r.package_name, r.cards, r.xhs_md, r.wechat_md);
+    } else {
+      // 用户正在看历史，不抢走视图，只提示 + 让返回条可用
+      $("status").textContent = summary + "（点「回到最近生成」查看）";
+      updateBackbar();
+    }
     return;
   }
   if (task.status === "error") {
+    generating = false;
     $("status").textContent = `❌ 出错：${task.error}`;
     $("gen").disabled = false;
     return;
@@ -70,6 +103,10 @@ async function generate() {
     $("status").textContent = "请先填选题。";
     return;
   }
+  generating = true;
+  activeResult = null;
+  viewing = "current";
+  updateBackbar();
   $("gen").disabled = true;
   $("result").classList.add("hidden");
   $("status").textContent = "已提交，生成中…（正式模式要几分钟）";
@@ -88,7 +125,11 @@ async function generate() {
     body: JSON.stringify(body),
   }).then((r) => r.json());
   if (res.task_id) poll(res.task_id);
-  else $("status").textContent = "提交失败：" + (res.detail || "未知错误");
+  else {
+    generating = false;
+    $("gen").disabled = false;
+    $("status").textContent = "提交失败：" + (res.detail || "未知错误");
+  }
 }
 
 document.querySelectorAll(".copy").forEach((btn) => {
@@ -100,6 +141,8 @@ document.querySelectorAll(".copy").forEach((btn) => {
     });
   };
 });
+
+$("back-current").onclick = showCurrent;
 
 $("push-now").onclick = async () => {
   if (!currentPackage) return;

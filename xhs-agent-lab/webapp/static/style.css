@@ -58,6 +58,8 @@ button:hover { background: #173a2d; }
 button:disabled { background: #9a8f7d; cursor: default; }
 button.secondary { background: #1c1b19; margin-top: 14px; }
 button.copy { background: #e4ded2; color: #1c1b19; padding: 3px 10px; font-size: 12px; }
+button.linkbtn { background: #e4ded2; color: #1c1b19; padding: 5px 12px; font-size: 12px; }
+.backbar { margin-bottom: 10px; }
 
 .status { font-size: 13px; color: #4a463f; margin-bottom: 8px; }
 .logs {
