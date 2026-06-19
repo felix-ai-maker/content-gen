@@ -187,6 +187,43 @@ def maybe_push_telegram(config: dict, output_dir: Path, no_push: bool = False, l
         return False
 
 
+def regenerate_card(
+    package_name: str,
+    index: int,
+    extra_brief: str = "",
+    config: dict | None = None,
+    config_path: Path | None = None,
+    project_root: Path = PROJECT_ROOT,
+    log=print,
+) -> dict:
+    """对已生成的发布包，单独重生成第 index 张卡（覆盖原图）。
+
+    复用包内 cards_used.json / style_plan.json / inputs.json，只重抽一张，省配额。
+    """
+    if config is None:
+        config = load_config(config_path or (project_root / "config.yaml"))
+    pkg = (project_root / "dist" / package_name).resolve()
+    if not pkg.is_dir():
+        raise ValueError(f"发布包不存在：{package_name}")
+
+    cards = read_cards_json(pkg / "cards_used.json")
+    style_plan = json.loads((pkg / "style_plan.json").read_text(encoding="utf-8"))
+    inputs_path = pkg / "inputs.json"
+    inputs = json.loads(inputs_path.read_text(encoding="utf-8")) if inputs_path.exists() else {}
+    topic = inputs.get("topic") or style_plan.get("name") or package_name
+    if not 1 <= index <= len(cards):
+        raise ValueError(f"卡片序号超出范围：{index}（共 {len(cards)} 张）")
+
+    if extra_brief and extra_brief.strip():
+        config["extra_brief"] = extra_brief.strip()
+
+    renderer = DirectCardRenderer(config=config, project_root=project_root)
+    log(f"重新生成第 {index} 张卡…")
+    path = renderer.render_one(cards, index, pkg, topic, style_plan)
+    log("完成。")
+    return {"package_name": package_name, "index": index, "card": path.name, "extra_brief": extra_brief}
+
+
 def _append_prompt_log(project_root: Path, entry: dict) -> None:
     """每次生成把输入提示词追加到 prompts_log.jsonl，供后续优化复盘。"""
     log_path = project_root / "prompts_log.jsonl"

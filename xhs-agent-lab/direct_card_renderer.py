@@ -43,6 +43,17 @@ class DirectCardRenderer:
         self._write_generation_meta(output_dir)
         return paths
 
+    def render_one(self, cards: list[dict], index: int, output_dir: Path, topic: str, style_plan: dict) -> Path:
+        """只重新生成第 index 张卡（1-based），覆盖原图。用于单张改提示词重生成。"""
+        self.preset = style_plan.get("style_preset") or {}
+        card = cards[index - 1]
+        image = self._generate_card(
+            cards=cards, card=card, index=index, total=len(cards), topic=topic, style_plan=style_plan
+        )
+        path = output_dir / f"card_{index:02d}.png"
+        image.save(path, "PNG", optimize=True)
+        return path
+
     def _generate_card(
         self,
         cards: list[dict],
@@ -211,6 +222,7 @@ class DirectCardRenderer:
             - 保持移动端阅读感：第一眼看到标题，第二眼理解视觉隐喻，第三眼读到核心观点。
 
             排版要求：
+            - 系列内所有页的主标题字号、字重尽量统一，保持一致的视觉规格。
             - 中文必须清晰、准确、可读。
             - 文字数量少而有力，避免满屏说明。
             - 顶部可以有页码或系列信息，但不要做成复杂仪表盘。

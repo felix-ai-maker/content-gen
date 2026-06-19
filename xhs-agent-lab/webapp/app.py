@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from pipeline import PROJECT_ROOT, generate_package, load_config, maybe_push_telegram
+from pipeline import PROJECT_ROOT, generate_package, load_config, maybe_push_telegram, regenerate_card
 
 DIST = PROJECT_ROOT / "dist"
 STATIC = Path(__file__).resolve().parent / "static"
@@ -34,6 +34,10 @@ class GenerateRequest(BaseModel):
     mode: str = "local"  # local=草稿省配额 / direct=正式整卡 / background=本地排版+AI背景
     extra_brief: str = ""
     push: bool = False
+
+
+class RegenRequest(BaseModel):
+    extra_brief: str = ""
 
 
 def _run_task(task_id: str, params: dict) -> None:
@@ -153,6 +157,31 @@ def api_prompts() -> list[dict]:
             except ValueError:
                 continue
     return list(reversed(rows))
+
+
+@app.post("/api/packages/{name}/cards/{index}/regenerate")
+def api_regenerate(name: str, index: int, req: RegenRequest) -> dict:
+    _safe_pkg(name)  # 校验包存在
+    task_id = uuid.uuid4().hex[:12]
+    TASKS[task_id] = {"status": "pending", "logs": [], "result": None, "error": None}
+
+    def run() -> None:
+        task = TASKS[task_id]
+        task["status"] = "running"
+
+        def log(msg: object) -> None:
+            task["logs"].append(str(msg))
+
+        try:
+            task["result"] = regenerate_card(name, index, extra_brief=req.extra_brief, log=log)
+            task["status"] = "done"
+        except Exception as exc:  # noqa: BLE001 - 回传给前端
+            task["error"] = str(exc)
+            task["status"] = "error"
+            task["logs"].append(f"出错：{exc}")
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"task_id": task_id}
 
 
 @app.post("/api/packages/{name}/push")

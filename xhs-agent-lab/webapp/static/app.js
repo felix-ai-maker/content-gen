@@ -22,13 +22,70 @@ async function loadHistory() {
   });
 }
 
+function cardIndexFromName(fname) {
+  const m = String(fname).match(/card_(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 function renderCards(name, cards) {
   $("cards").innerHTML = cards
     .map((c) => {
+      const idx = cardIndexFromName(c);
       const url = `/api/packages/${encodeURIComponent(name)}/cards/${encodeURIComponent(c)}`;
-      return `<img src="${url}" title="${c}" onclick="window.open('${url}')" />`;
+      return `<div class="card-item">
+        <img id="img-${idx}" src="${url}" title="${c}" onclick="window.open('${url}')" />
+        <button class="regen-toggle" data-idx="${idx}">✏️ 改这张</button>
+        <div class="regen-box hidden" id="regenbox-${idx}">
+          <textarea id="regen-${idx}" rows="2" placeholder="只改这张的指令，例如：标题再大些、换个主视觉、配色更克制…"></textarea>
+          <button class="regen-go" data-idx="${idx}">重生成这张</button>
+          <span class="regen-status" id="regenst-${idx}"></span>
+        </div>
+      </div>`;
     })
     .join("");
+  document.querySelectorAll(".regen-toggle").forEach((b) => {
+    b.onclick = () => $(`regenbox-${b.dataset.idx}`).classList.toggle("hidden");
+  });
+  document.querySelectorAll(".regen-go").forEach((b) => {
+    b.onclick = () => regenOne(name, parseInt(b.dataset.idx, 10), b);
+  });
+}
+
+async function regenOne(name, idx, btn) {
+  btn.disabled = true;
+  const st = $(`regenst-${idx}`);
+  st.textContent = "提交中…";
+  const extra = $(`regen-${idx}`).value;
+  const res = await fetch(`/api/packages/${encodeURIComponent(name)}/cards/${idx}/regenerate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ extra_brief: extra }),
+  }).then((r) => r.json());
+  if (!res.task_id) {
+    st.textContent = "提交失败";
+    btn.disabled = false;
+    return;
+  }
+  pollRegen(res.task_id, name, idx, btn);
+}
+
+async function pollRegen(taskId, name, idx, btn) {
+  const task = await fetch(`/api/tasks/${taskId}`).then((r) => r.json());
+  const st = $(`regenst-${idx}`);
+  if (task.status === "done") {
+    const fname = task.result.card;
+    $(`img-${idx}`).src = `/api/packages/${encodeURIComponent(name)}/cards/${encodeURIComponent(fname)}?t=${Date.now()}`;
+    st.textContent = "✅ 已更新";
+    btn.disabled = false;
+    return;
+  }
+  if (task.status === "error") {
+    st.textContent = "❌ " + task.error;
+    btn.disabled = false;
+    return;
+  }
+  st.textContent = (task.logs || []).slice(-1)[0] || "生成中…";
+  setTimeout(() => pollRegen(taskId, name, idx, btn), 1500);
 }
 
 function renderInto(name, cards, xhs, wechat) {
