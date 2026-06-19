@@ -89,6 +89,43 @@ python inspect_package.py --dir "dist/YYYY-MM-DD_选题"
 如果需要，先生成 cards.json 再跑。
 ```
 
+## 发布通道：从 Mac 到手机
+
+生成发布包后，用一条固定通道把材料送到手机，每次动作都一样：
+
+1. 生成发布包：
+
+```bash
+python main.py --topic "选题" --direct-ai-card
+```
+
+2. 整理成手机发布套件：
+
+```bash
+python prepare_publish.py
+```
+
+会在 `outbox/<包名>/` 生成 7 张图 + `手机发布单.md`，并打包成 `outbox/<包名>.zip`。
+
+3. 传到手机（任选其一，长期固定一种）：
+
+- 微信「文件传输助手」：把那个 zip 发给自己，手机接收（iPhone / Android 都行）。
+- iPhone 自动同步：
+
+```bash
+python prepare_publish.py --sync "~/Library/Mobile Documents/com~apple~CloudDocs/发布待发"
+```
+
+手机「文件」App 的 iCloud Drive 里自动可见。
+
+4. 手机端发布：
+
+- 图片存进相册。
+- 小红书：新建图文 → 按顺序选 7 张 `card_*` → 标题、正文 + 标签从「手机发布单」长按代码块整段复制粘贴 → 发布。
+- 公众号：建议用电脑后台 `mp.weixin.qq.com` 粘贴排版；要手机就用「订阅号助手」App。
+
+`手机发布单.md` 已经把小红书标题、正文 + 标签、公众号标题正文分块排好，手机上长按代码块即可整段复制。
+
 ## 安全约定
 
 - 不要把 Google 授权码、API Key、服务账号 JSON 写进项目文件。
