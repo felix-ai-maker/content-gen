@@ -7,128 +7,207 @@
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <header>
-    <h1>内容生成系统</h1>
-    <span class="sub">交易 Agent 实验室 · 本地版</span>
-  </header>
-
-  <main>
-    <section class="panel form">
-      <h2>① 输入</h2>
-      <label>
-        <div class="field-head">
-          <span>选题</span>
-          <button id="inspire-topic" type="button" class="mini subtle">AI 给选题灵感</button>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">实</div>
+        <div class="brand-text">
+          <strong>内容生成系统</strong>
+          <span>交易 Agent 实验室 · 本地版</span>
         </div>
-        <input id="topic" type="text" placeholder="例如：我为什么要搭一个自己的交易 Agent？" />
-      </label>
-      <label class="inspire-direction">
-        <div class="field-head">
-          <span>灵感关键词 / 方向</span>
-          <span class="field-note">只用于 AI 灵感</span>
-        </div>
-        <input id="inspire-direction" type="text" placeholder="例如：复盘留痕、减少冲动、自动化工作流" />
-      </label>
-      <label>
-        <div class="field-head">
-          <span>素材 / 原始想法（可选，自动拆卡）</span>
-          <button id="inspire-copy" type="button" class="mini subtle">AI 扩写素材</button>
-        </div>
-        <textarea id="copy" rows="5" placeholder="粘贴今天的想法、复盘、行情观察…"></textarea>
-      </label>
-      <div id="inspire-panel" class="inspire-panel hidden"></div>
-      <label>视觉风格
-        <select id="style"></select>
-      </label>
-      <label>出图模式
-        <select id="mode">
-          <option value="background" selected>正式（固定字体排版 + AI 主视觉，推荐）</option>
-          <option value="local">草稿（固定排版，省配额，最快）</option>
-          <option value="direct">实验（AI 整卡直出，字体可能不一致）</option>
-        </select>
-      </label>
-      <label>额外创意指令（可选，调提示词优化画面）
-        <textarea id="extra" rows="2" placeholder="例如：多一点手绘质感、主视觉用暖光、构图更大胆…"></textarea>
-      </label>
-      <label class="row"><input id="push" type="checkbox" /> 生成后推送到 Telegram</label>
-      <button id="gen">开始生成</button>
-    </section>
-
-    <section class="panel output">
-      <h2>② 进度 / 结果</h2>
-      <div id="status" class="status">填好左边，点「开始生成」。</div>
-      <div id="progress" class="progress hidden">
-        <div class="progress-top">
-          <span id="progress-label">等待开始…</span>
-          <strong id="progress-percent">0%</strong>
-        </div>
-        <div class="progress-bar"><div id="progress-fill"></div></div>
-        <div id="progress-detail" class="progress-detail"></div>
       </div>
-      <pre id="logs" class="logs"></pre>
 
-      <div id="result" class="result hidden">
-        <div id="backbar" class="backbar hidden"><button id="back-current" class="linkbtn">← 回到最近生成的内容</button></div>
-        <div class="meta" id="meta"></div>
-        <div class="inputs" id="inputs"></div>
-        <div id="workbench" class="workbench collapsed">
-          <div class="workbench-head">
-            <div class="workbench-title">
-              <strong>高级工作台</strong>
-              <span id="workbench-summary">默认收起，展开后可编辑文案和重渲染。</span>
-            </div>
-            <button id="workbench-toggle" class="mini" aria-expanded="false">展开高级</button>
-          </div>
-          <div id="workbench-body" class="workbench-body hidden">
-            <div class="workbench-actions">
-              <button id="edit-cards" class="mini">编辑卡片文案</button>
-              <button id="save-cards" class="mini" disabled>保存文案</button>
-              <button id="rerender-local" class="mini">本地重渲染</button>
-              <button id="rerender-direct" class="mini primary">正式出图（固定排版）</button>
-            </div>
-            <div id="review" class="review"></div>
-            <div id="card-editor" class="card-editor hidden"></div>
-          </div>
-        </div>
-        <div class="cards" id="cards"></div>
-        <div id="regen-panel" class="regen-panel hidden"></div>
-        <div class="docs">
-          <div class="doc">
-            <div class="doc-head">
-              <span>📕 小红书正文</span>
-              <div class="doc-actions">
-                <button data-target="xhs" class="copy">复制</button>
-                <button data-kind="xhs" class="doc-edit mini">编辑</button>
-                <button data-kind="xhs" class="doc-save mini primary hidden">保存</button>
-                <button data-kind="xhs" class="doc-cancel mini hidden">取消</button>
-              </div>
-            </div>
-            <pre id="xhs"></pre>
-            <textarea id="xhs-editor" class="doc-editor hidden"></textarea>
-          </div>
-          <div class="doc">
-            <div class="doc-head">
-              <span>📰 公众号文章</span>
-              <div class="doc-actions">
-                <button data-target="wechat" class="copy">复制</button>
-                <button data-kind="wechat" class="doc-edit mini">编辑</button>
-                <button data-kind="wechat" class="doc-save mini primary hidden">保存</button>
-                <button data-kind="wechat" class="doc-cancel mini hidden">取消</button>
-              </div>
-            </div>
-            <pre id="wechat"></pre>
-            <textarea id="wechat-editor" class="doc-editor hidden"></textarea>
-          </div>
-        </div>
-        <button id="push-now" class="secondary">推送到 Telegram</button>
+      <nav class="nav">
+        <button type="button" class="nav-item active" data-view="create"><span class="nav-ico">✍️</span><span>创作</span></button>
+        <button type="button" class="nav-item" data-view="research"><span class="nav-ico">🔥</span><span>爆款研究</span></button>
+        <button type="button" class="nav-item" data-view="history"><span class="nav-ico">🗂️</span><span>历史发布包</span></button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <button id="open-settings" type="button" class="nav-item subtle-item"><span class="nav-ico">⚙️</span><span>密钥设置</span></button>
       </div>
-    </section>
-  </main>
+    </aside>
 
-  <section class="panel history">
-    <h2>历史发布包</h2>
-    <ul id="history"></ul>
-  </section>
+    <div class="content">
+      <!-- ===== 视图：创作 ===== -->
+      <div class="view active" data-view="create">
+        <div class="view-head">
+          <h1 class="view-title">✍️ 创作</h1>
+          <p class="view-sub">给一句灵感方向，系统产出图文候选，你只做审美判断。</p>
+        </div>
+        <main>
+          <section class="panel form">
+            <h2>① 输入</h2>
+            <label>
+              <div class="field-head">
+                <span>选题</span>
+                <button id="inspire-topic" type="button" class="mini subtle">AI 给选题灵感</button>
+              </div>
+              <input id="topic" type="text" placeholder="例如：我为什么要搭一个自己的交易 Agent？" />
+            </label>
+            <label class="inspire-direction">
+              <div class="field-head">
+                <span>灵感关键词 / 方向</span>
+                <span class="field-note">只用于 AI 灵感</span>
+              </div>
+              <input id="inspire-direction" type="text" placeholder="例如：复盘留痕、减少冲动、自动化工作流" />
+            </label>
+            <label>
+              <div class="field-head">
+                <span>素材 / 原始想法（可选，自动拆卡）</span>
+                <button id="inspire-copy" type="button" class="mini subtle">AI 扩写素材</button>
+              </div>
+              <textarea id="copy" rows="5" placeholder="粘贴今天的想法、复盘、行情观察…"></textarea>
+            </label>
+            <div id="inspire-panel" class="inspire-panel hidden"></div>
+            <label>视觉风格
+              <select id="style"></select>
+            </label>
+            <label>出图模式
+              <select id="mode">
+                <option value="background" selected>正式（固定字体排版 + AI 主视觉，推荐）</option>
+                <option value="local">草稿（固定排版，省配额，最快）</option>
+                <option value="direct">实验（AI 整卡直出，字体可能不一致）</option>
+              </select>
+            </label>
+            <label>额外创意指令（可选，调提示词优化画面）
+              <textarea id="extra" rows="2" placeholder="例如：多一点手绘质感、主视觉用暖光、构图更大胆…"></textarea>
+            </label>
+            <label class="row"><input id="push" type="checkbox" /> 生成后推送到 Telegram</label>
+            <button id="gen">开始生成</button>
+          </section>
+
+          <section class="panel output">
+            <h2>② 进度 / 结果</h2>
+            <div id="status" class="status">填好左边，点「开始生成」。</div>
+            <div id="progress" class="progress hidden">
+              <div class="progress-top">
+                <span id="progress-label">等待开始…</span>
+                <strong id="progress-percent">0%</strong>
+              </div>
+              <div class="progress-bar"><div id="progress-fill"></div></div>
+              <div id="progress-detail" class="progress-detail"></div>
+            </div>
+            <pre id="logs" class="logs"></pre>
+
+            <div id="result" class="result hidden">
+              <div id="backbar" class="backbar hidden"><button id="back-current" class="linkbtn">← 回到最近生成的内容</button></div>
+              <div class="meta" id="meta"></div>
+              <div class="inputs" id="inputs"></div>
+              <div id="workbench" class="workbench collapsed">
+                <div class="workbench-head">
+                  <div class="workbench-title">
+                    <strong>高级工作台</strong>
+                    <span id="workbench-summary">默认收起，展开后可编辑文案和重渲染。</span>
+                  </div>
+                  <button id="workbench-toggle" class="mini" aria-expanded="false">展开高级</button>
+                </div>
+                <div id="workbench-body" class="workbench-body hidden">
+                  <div class="workbench-actions">
+                    <button id="edit-cards" class="mini">编辑卡片文案</button>
+                    <button id="save-cards" class="mini" disabled>保存文案</button>
+                    <button id="rerender-local" class="mini">本地重渲染</button>
+                    <button id="rerender-direct" class="mini primary">正式出图（固定排版）</button>
+                  </div>
+                  <div id="review" class="review"></div>
+                  <div id="card-editor" class="card-editor hidden"></div>
+                </div>
+              </div>
+              <div class="cards" id="cards"></div>
+              <div id="regen-panel" class="regen-panel hidden"></div>
+              <div class="docs">
+                <div class="doc">
+                  <div class="doc-head">
+                    <span>📕 小红书正文</span>
+                    <div class="doc-actions">
+                      <button data-target="xhs" class="copy">复制</button>
+                      <button data-kind="xhs" class="doc-edit mini">编辑</button>
+                      <button data-kind="xhs" class="doc-save mini primary hidden">保存</button>
+                      <button data-kind="xhs" class="doc-cancel mini hidden">取消</button>
+                    </div>
+                  </div>
+                  <pre id="xhs"></pre>
+                  <textarea id="xhs-editor" class="doc-editor hidden"></textarea>
+                </div>
+                <div class="doc">
+                  <div class="doc-head">
+                    <span>📰 公众号文章</span>
+                    <div class="doc-actions">
+                      <button data-target="wechat" class="copy">复制</button>
+                      <button data-kind="wechat" class="doc-edit mini">编辑</button>
+                      <button data-kind="wechat" class="doc-save mini primary hidden">保存</button>
+                      <button data-kind="wechat" class="doc-cancel mini hidden">取消</button>
+                    </div>
+                  </div>
+                  <pre id="wechat"></pre>
+                  <textarea id="wechat-editor" class="doc-editor hidden"></textarea>
+                </div>
+              </div>
+              <button id="push-now" class="secondary">推送到 Telegram</button>
+            </div>
+          </section>
+        </main>
+      </div>
+
+      <!-- ===== 视图：爆款研究 ===== -->
+      <div class="view" data-view="research">
+        <div class="view-head">
+          <h1 class="view-title">🔥 爆款研究</h1>
+          <p class="view-sub">读别人爆款是学习的过程：拆解共性，沉淀进你的生成。</p>
+        </div>
+        <section class="panel research">
+          <div class="research-tabs">
+            <button type="button" class="research-tab active" data-tab="analyze">拆解爆款</button>
+            <button type="button" class="research-tab" data-tab="search">搜索爆款</button>
+          </div>
+
+          <div id="tab-analyze" class="research-pane">
+            <p class="research-note">粘贴一篇爆款笔记（标题 + 正文 + 标签），AI 按 6 维（关键词 / 标题钩子 / 限流风险 / 商业度 / 互动 / 结构）拆解「为什么爆」。</p>
+            <textarea id="analyze-input" rows="6" placeholder="把小红书爆款笔记的标题、正文、标签粘进来…"></textarea>
+            <button id="analyze-btn" type="button" class="primary">开始拆解</button>
+            <pre id="analyze-result" class="research-result"></pre>
+          </div>
+
+          <div id="tab-search" class="research-pane hidden">
+            <p class="research-note">📌 正规推荐：小红书没有公开的"搜爆款"接口，建议从 App 的<strong>「热点榜 / 笔记灵感」</strong>手动挑爆款，贴到左边「拆解爆款」学规律——零风险。下面的自动搜索依赖<strong>非官方工具 + 登录你的账号</strong>，有限流/封号风险，属可选高级项。</p>
+            <div id="xhs-status" class="xhs-status">检测小红书服务状态…</div>
+            <div class="xhs-search-row">
+              <input id="xhs-keyword" type="text" placeholder="搜关键词，例如：交易复盘 / 读书笔记" />
+              <button id="xhs-search-btn" type="button" class="primary">搜索</button>
+              <button id="xhs-login-btn" type="button" class="mini subtle">获取登录二维码</button>
+            </div>
+            <pre id="xhs-result" class="research-result"></pre>
+          </div>
+        </section>
+      </div>
+
+      <!-- ===== 视图：历史 ===== -->
+      <div class="view" data-view="history">
+        <div class="view-head">
+          <h1 class="view-title">🗂️ 历史发布包</h1>
+          <p class="view-sub">点开任意一个，回看图文、文案与发布检查。</p>
+        </div>
+        <section class="panel history">
+          <ul id="history"></ul>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <strong>密钥设置</strong>
+        <button id="close-settings" type="button" class="mini subtle">关闭</button>
+      </div>
+      <p class="modal-note">填一次永久保存到 <code id="env-path-label">.env</code>，本机使用、不会提交到 git，立即生效无需重启。输入框留空表示不修改。</p>
+      <div id="settings-list" class="settings-list"></div>
+      <div class="modal-actions">
+        <span id="settings-msg" class="settings-msg"></span>
+        <button id="save-settings" type="button" class="primary">保存</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

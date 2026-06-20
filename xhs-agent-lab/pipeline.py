@@ -32,6 +32,15 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for fresh local Pytho
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
+# 持久化密钥：启动时从 .env 读入环境变量，省得每次开会话重新 export。
+# 不覆盖已存在的 shell 变量（override 默认 False），所以临时 export 仍优先。
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(PROJECT_ROOT / ".env")
+except ModuleNotFoundError:  # pragma: no cover - dotenv 未安装时静默跳过，不影响主流程
+    pass
+
 
 # --------------------------------------------------------------------------- #
 # 配置 / 卡片 / 输出 helper（自 main.py 迁移，行为不变）

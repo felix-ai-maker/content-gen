@@ -682,6 +682,7 @@ function showCurrent() {
 
 async function showPackage(name) {
   try {
+    switchView("create");
     viewing = name;
     const pkgs = await fetchJson("/api/packages");
     const pkg = pkgs.find((p) => p.name === name);
@@ -831,6 +832,182 @@ $("push-now").onclick = async () => {
   }
   setTimeout(() => ($("push-now").textContent = "推送到 Telegram"), 2000);
 };
+
+async function loadSettings() {
+  const data = await fetchJson("/api/settings");
+  $("env-path-label").textContent = data.env_path || ".env";
+  $("settings-list").innerHTML = (data.keys || [])
+    .map(
+      (k) => `
+    <div class="setting-row">
+      <div class="setting-label">
+        <strong>${escapeHTML(k.label)}</strong>
+        <span class="setting-hint">${escapeHTML(k.hint)}</span>
+      </div>
+      <div class="setting-input">
+        <input type="password" autocomplete="off" data-key="${escapeHTML(k.key)}"
+          placeholder="${k.set ? "已设置 " + escapeHTML(k.preview) + " · 留空不改" : "未设置"}" />
+        ${k.set ? `<button type="button" class="mini subtle clear-key" data-key="${escapeHTML(k.key)}">清除</button>` : ""}
+      </div>
+    </div>`
+    )
+    .join("");
+  $("settings-list")
+    .querySelectorAll(".clear-key")
+    .forEach((btn) => {
+      btn.onclick = () => saveSettings({ [btn.dataset.key]: "" }, true);
+    });
+}
+
+async function saveSettings(explicitValues, isClear) {
+  const values = explicitValues || {};
+  if (!explicitValues) {
+    $("settings-list")
+      .querySelectorAll("input[data-key]")
+      .forEach((input) => {
+        const value = input.value.trim();
+        if (value) values[input.dataset.key] = value;
+      });
+  }
+  if (Object.keys(values).length === 0) {
+    $("settings-msg").textContent = "没有要保存的改动。";
+    return;
+  }
+  $("settings-msg").textContent = "保存中…";
+  try {
+    await fetchJson("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ values }),
+    });
+    $("settings-msg").textContent = isClear ? "已清除。" : "已保存，立即生效。";
+    await loadSettings();
+  } catch (err) {
+    $("settings-msg").textContent = "失败：" + err.message;
+  }
+}
+
+$("open-settings").onclick = () => {
+  $("settings-modal").classList.remove("hidden");
+  $("settings-msg").textContent = "";
+  loadSettings().catch((err) => {
+    $("settings-msg").textContent = "加载失败：" + err.message;
+  });
+};
+$("close-settings").onclick = () => $("settings-modal").classList.add("hidden");
+$("settings-modal").onclick = (event) => {
+  if (event.target === $("settings-modal")) $("settings-modal").classList.add("hidden");
+};
+$("save-settings").onclick = () => saveSettings();
+
+function switchResearchTab(tab) {
+  document.querySelectorAll(".research-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  });
+  $("tab-analyze").classList.toggle("hidden", tab !== "analyze");
+  $("tab-search").classList.toggle("hidden", tab !== "search");
+  if (tab === "search") loadXhsStatus().catch(() => {});
+}
+
+async function analyzeNote() {
+  const text = $("analyze-input").value.trim();
+  if (text.length < 10) {
+    $("analyze-result").textContent = "先粘贴一篇笔记内容（标题 + 正文 + 标签）。";
+    return;
+  }
+  $("analyze-btn").disabled = true;
+  $("analyze-result").textContent = "拆解中…（DeepSeek 分析需几秒到十几秒）";
+  try {
+    const data = await fetchJson("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    $("analyze-result").textContent = data.report || "（无返回）";
+  } catch (err) {
+    $("analyze-result").textContent = "拆解失败：" + err.message;
+  } finally {
+    $("analyze-btn").disabled = false;
+  }
+}
+
+async function loadXhsStatus() {
+  const box = $("xhs-status");
+  box.textContent = "检测小红书服务状态…";
+  box.className = "xhs-status";
+  try {
+    const s = await fetchJson("/api/xhs/status");
+    if (!s.installed) {
+      box.textContent = "未安装 openclaw-xhs skill。";
+      box.classList.add("warn");
+    } else if (!s.running) {
+      box.textContent = "MCP 服务未启动 · 终端运行 .agents/skills/xiaohongshu/scripts/start-mcp.sh 后再搜索";
+      box.classList.add("warn");
+    } else if (!s.logged_in) {
+      box.textContent = "MCP 已启动，但未登录 · 点「获取登录二维码」用小红书 App 扫码";
+      box.classList.add("warn");
+    } else {
+      box.textContent = "✅ 已就绪，可以搜索爆款了";
+      box.classList.add("ok");
+    }
+  } catch (err) {
+    box.textContent = "状态检测失败：" + err.message;
+    box.classList.add("warn");
+  }
+}
+
+async function xhsSearch() {
+  const keyword = $("xhs-keyword").value.trim();
+  if (!keyword) {
+    $("xhs-result").textContent = "先输入关键词。";
+    return;
+  }
+  $("xhs-search-btn").disabled = true;
+  $("xhs-result").textContent = `搜索「${keyword}」…`;
+  try {
+    const data = await fetchJson("/api/xhs/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keyword }),
+    });
+    $("xhs-result").textContent = data.output || "（无结果）";
+  } catch (err) {
+    $("xhs-result").textContent = "搜索失败：" + err.message;
+  } finally {
+    $("xhs-search-btn").disabled = false;
+  }
+}
+
+async function xhsLoginQr() {
+  $("xhs-result").textContent = "获取登录二维码…";
+  try {
+    const data = await fetchJson("/api/xhs/login-qr", { method: "POST" });
+    $("xhs-result").textContent = data.output || "（无返回）";
+  } catch (err) {
+    $("xhs-result").textContent = "获取失败：" + err.message;
+  }
+}
+
+function switchView(view) {
+  document.querySelectorAll(".nav-item[data-view]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.view === view);
+  });
+  document.querySelectorAll(".view").forEach((v) => {
+    v.classList.toggle("active", v.dataset.view === view);
+  });
+  if (view === "history") loadHistory().catch(() => {});
+}
+
+document.querySelectorAll(".nav-item[data-view]").forEach((btn) => {
+  btn.onclick = () => switchView(btn.dataset.view);
+});
+
+document.querySelectorAll(".research-tab").forEach((btn) => {
+  btn.onclick = () => switchResearchTab(btn.dataset.tab);
+});
+$("analyze-btn").onclick = analyzeNote;
+$("xhs-search-btn").onclick = xhsSearch;
+$("xhs-login-btn").onclick = xhsLoginQr;
 
 $("gen").onclick = generate;
 loadPresets().catch((err) => {

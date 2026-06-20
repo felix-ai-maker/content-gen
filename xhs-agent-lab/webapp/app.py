@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import threading
 import urllib.error
 import uuid
@@ -17,6 +18,7 @@ from typing import Optional
 
 from creative_director import _post_chat
 
+from dotenv import dotenv_values, set_key, unset_key
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -67,6 +69,203 @@ def _config() -> dict:
         _CONFIG_CACHE["mtime"] = mtime
         _CONFIG_CACHE["data"] = load_config(path)
     return _CONFIG_CACHE["data"]
+
+
+# --------------------------------------------------------------------------- #
+# 密钥设置：持久化到 .env，浏览器里填一次永久保存、即时生效，免得每次开会话重 export。
+# --------------------------------------------------------------------------- #
+ENV_PATH = PROJECT_ROOT / ".env"
+
+SETTINGS_KEYS = [
+    {"key": "DEEPSEEK_API_KEY", "label": "DeepSeek API Key", "hint": "卡片文案、图文正文、选题灵感的文本大模型"},
+    {"key": "GOOGLE_API_KEY", "label": "Google / Vertex API Key", "hint": "Nano Banana 图像模型出图"},
+    {"key": "GOOGLE_CLOUD_PROJECT", "label": "GCP 项目 ID（可选）", "hint": "用 Vertex 完整身份认证时填，与上面的 API Key 二选一"},
+    {"key": "TELEGRAM_BOT_TOKEN", "label": "Telegram Bot Token（可选）", "hint": "生成后推送到手机"},
+    {"key": "TELEGRAM_CHAT_ID", "label": "Telegram Chat ID（可选）", "hint": "生成后推送到手机"},
+]
+
+
+def _mask_secret(value: str) -> str:
+    v = str(value or "").strip()
+    if not v:
+        return ""
+    if len(v) <= 4:
+        return "····"
+    return f"{v[:4]}····{v[-4:]}"
+
+
+def _settings_snapshot() -> dict:
+    file_vals = dotenv_values(ENV_PATH) if ENV_PATH.exists() else {}
+    items = []
+    for meta in SETTINGS_KEYS:
+        key = meta["key"]
+        value = os.getenv(key) or file_vals.get(key) or ""
+        items.append({**meta, "set": bool(value), "preview": _mask_secret(value)})
+    return {"keys": items, "env_path": str(ENV_PATH)}
+
+
+class SettingsUpdate(BaseModel):
+    values: dict[str, str]
+
+
+@app.get("/api/settings")
+def api_get_settings() -> dict:
+    return _settings_snapshot()
+
+
+@app.put("/api/settings")
+def api_put_settings(req: SettingsUpdate) -> dict:
+    """把密钥写入 .env 并即时更新本进程环境变量（无需重启）。留空表示删除该项。"""
+    allowed = {meta["key"] for meta in SETTINGS_KEYS}
+    ENV_PATH.touch(exist_ok=True)
+    for key, raw in (req.values or {}).items():
+        if key not in allowed:
+            continue
+        value = str(raw or "").strip()
+        if value:
+            set_key(str(ENV_PATH), key, value)
+            os.environ[key] = value
+        else:
+            unset_key(str(ENV_PATH), key)
+            os.environ.pop(key, None)
+    return _settings_snapshot()
+
+
+# --------------------------------------------------------------------------- #
+# 爆款研究：拆解（analyzer skill 提示词）+ 搜索（openclaw MCP skill 脚本）
+# --------------------------------------------------------------------------- #
+SKILLS_DIR = PROJECT_ROOT.parent / ".agents" / "skills"
+ANALYZER_SKILL_MD = SKILLS_DIR / "xiaohongshu-note-analyzer" / "SKILL.md"
+XHS_SCRIPTS = SKILLS_DIR / "xiaohongshu" / "scripts"
+_ANALYZER_FRAMEWORK: dict = {}
+
+
+def _analyzer_framework() -> str:
+    try:
+        mtime = ANALYZER_SKILL_MD.stat().st_mtime
+    except OSError:
+        return ""
+    if _ANALYZER_FRAMEWORK.get("mtime") != mtime:
+        _ANALYZER_FRAMEWORK["mtime"] = mtime
+        _ANALYZER_FRAMEWORK["text"] = ANALYZER_SKILL_MD.read_text(encoding="utf-8")
+    return _ANALYZER_FRAMEWORK.get("text", "")
+
+
+def _llm_for(config: dict) -> tuple[dict, str]:
+    """取文本 LLM 配置 + key；缺任一项抛 HTTPException，前端能给出明确指引。"""
+    llm = config.get("copy_llm") or config.get("creative_llm") or {}
+    if not llm.get("enabled"):
+        raise HTTPException(status_code=400, detail="未启用文本大模型（config 的 copy_llm/creative_llm）。")
+    api_key = os.getenv(str(llm.get("api_key_env", "DEEPSEEK_API_KEY")))
+    if not api_key:
+        raise HTTPException(status_code=400, detail="未配置 DeepSeek API Key，先点右上「⚙️ 密钥设置」填一下。")
+    return llm, api_key
+
+
+class AnalyzeRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/analyze")
+def api_analyze(req: AnalyzeRequest) -> dict:
+    """把一篇爆款笔记按 analyzer skill 的框架做 6 维拆解。"""
+    text = (req.text or "").strip()
+    if len(text) < 10:
+        raise HTTPException(status_code=400, detail="先粘贴一篇小红书笔记内容（标题 + 正文 + 标签）。")
+    framework = _analyzer_framework()
+    if not framework:
+        raise HTTPException(status_code=404, detail="未找到 analyzer skill（.agents/skills/xiaohongshu-note-analyzer）。")
+    llm, api_key = _llm_for(_config())
+    system = "你是资深小红书内容分析师。严格按用户给的分析框架，对笔记做全维度拆解，输出框架要求的 Markdown 报告，结论具体、可执行。"
+    user = f"【分析框架】\n{framework}\n\n【待分析的小红书笔记】\n{text}\n\n请严格按框架的「输出格式」产出完整分析报告。"
+    try:
+        report = _post_chat(
+            base_url=str(llm.get("base_url", "https://api.deepseek.com")),
+            api_key=api_key,
+            payload={
+                "model": llm.get("model", "deepseek-chat"),
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                "temperature": 0.4,
+                "stream": False,
+            },
+            timeout=float(llm.get("timeout_seconds", 60)),
+        )
+    except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=f"分析失败：{exc}") from exc
+    return {"report": report}
+
+
+def _run_xhs(script: str, *args: str, timeout: float = 40) -> dict:
+    """调用 openclaw-xhs skill 自带脚本（复用其 MCP 封装，不自己实现协议）。"""
+    path = XHS_SCRIPTS / script
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"未找到小红书 skill 脚本：{script}（先安装 openclaw-xhs skill）。")
+    try:
+        proc = subprocess.run(
+            ["bash", str(path), *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=str(XHS_SCRIPTS),
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "output": "", "error": "调用超时，确认 MCP 服务已启动（scripts/start-mcp.sh）。"}
+    out = (proc.stdout or "").strip()
+    err = (proc.stderr or "").strip()
+    ok = proc.returncode == 0 and "错误" not in out and "Connection refused" not in (out + err)
+    return {"ok": ok, "output": out, "error": err}
+
+
+def _mcp_port() -> int:
+    url = os.getenv("MCP_URL", "")
+    match = re.search(r":(\d+)", url)
+    return int(match.group(1)) if match else 18060
+
+
+def _mcp_running() -> bool:
+    import socket
+
+    try:
+        with socket.create_connection(("127.0.0.1", _mcp_port()), timeout=1.0):
+            return True
+    except OSError:
+        return False
+
+
+@app.get("/api/xhs/status")
+def api_xhs_status() -> dict:
+    """MCP 是否在跑 + 是否已登录。以端口监听为权威信号，未启动时不报错，回明确状态供前端引导。"""
+    if not XHS_SCRIPTS.exists():
+        return {"installed": False, "running": False, "logged_in": False, "message": "未安装 openclaw-xhs skill。"}
+    if not _mcp_running():
+        return {"installed": True, "running": False, "logged_in": False, "message": f"MCP 服务（端口 {_mcp_port()}）未监听。"}
+    res = _run_xhs("status.sh", timeout=15)
+    text = res["output"] + res["error"]
+    logged_in = res["ok"] and ("已登录" in text or '"true"' in text.lower() or "logged_in" in text.lower())
+    return {"installed": True, "running": True, "logged_in": logged_in, "message": res["output"] or res["error"]}
+
+
+class XhsSearchRequest(BaseModel):
+    keyword: str
+
+
+@app.post("/api/xhs/search")
+def api_xhs_search(req: XhsSearchRequest) -> dict:
+    keyword = (req.keyword or "").strip()
+    if not keyword:
+        raise HTTPException(status_code=400, detail="先输入要搜的关键词。")
+    if not _mcp_running():
+        raise HTTPException(status_code=503, detail=f"MCP 服务（端口 {_mcp_port()}）未启动，先在终端跑 scripts/start-mcp.sh。")
+    res = _run_xhs("search.sh", keyword, timeout=60)
+    if not res["ok"]:
+        raise HTTPException(status_code=502, detail=res["error"] or res["output"] or "搜索失败，确认 MCP 已启动并登录。")
+    return {"keyword": keyword, "output": res["output"]}
+
+
+@app.post("/api/xhs/login-qr")
+def api_xhs_login_qr() -> dict:
+    res = _run_xhs("mcp-call.sh", "get_login_qrcode", timeout=30)
+    return {"ok": res["ok"], "output": res["output"] or res["error"]}
 
 
 def _initial_progress(message: str = "等待开始…") -> dict:
