@@ -13,6 +13,7 @@ import subprocess
 import threading
 import urllib.error
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -139,6 +140,10 @@ ANALYZER_SKILL_MD = SKILLS_DIR / "xiaohongshu-note-analyzer" / "SKILL.md"
 XHS_SCRIPTS = SKILLS_DIR / "xiaohongshu" / "scripts"
 _ANALYZER_FRAMEWORK: dict = {}
 
+# 沉淀闭环：拆解存档 + 招式库（copy_writer 生成时会读 playbook.md）。
+PLAYBOOK_PATH = PROJECT_ROOT / "playbook.md"
+TEARDOWNS_PATH = PROJECT_ROOT / "teardowns.jsonl"
+
 
 def _analyzer_framework() -> str:
     try:
@@ -149,6 +154,31 @@ def _analyzer_framework() -> str:
         _ANALYZER_FRAMEWORK["mtime"] = mtime
         _ANALYZER_FRAMEWORK["text"] = ANALYZER_SKILL_MD.read_text(encoding="utf-8")
     return _ANALYZER_FRAMEWORK.get("text", "")
+
+
+# 传播力优先框架：核心是学"它凭什么能传播 + 我怎么复用"，合规只做一行脚注。
+_PROPAGATION_FRAMEWORK = """\
+你是顶级的小红书传播力分析师。核心任务：拆解这篇笔记"为什么会被大量点赞/收藏/评论、为什么会传播"，
+并提炼出用户可以直接搬到自己选题上的招式。重点全部放在传播力，不要纠结合规/风险（那是另一回事，最后只用一行点到为止）。
+
+请按以下传播力维度逐项分析。每一项都要给三样东西：
+①评分(1-10)；②它具体怎么做到的（必须引用原文里的具体词句作为证据）；③可复用招式（怎么把这招搬到别的选题上）。
+
+1. 停留钩子（标题 + 首图首句）：第一眼能不能让人在信息流里停下、想点开。看 FOMO/错过焦虑、悬念、痛点、反差、具体数字、身份标签、强情绪词。
+2. 情绪强度：激起了什么情绪（欲望/暴富梦、焦虑、错过感、共鸣、优越感、好奇、愤怒）。情绪越强，越驱动点赞、评论、转发。
+3. 收藏动机：是不是让人"先收藏再说"。清单体、可执行步骤、具体数字与配比、模板、合集、信息密度。收藏率是小红书最强的推荐信号之一。
+4. 互动/评论触发：有没有制造站队、争议、提问、求助、共鸣，让人忍不住在评论区说话。
+5. 社交货币（转发动机）：转发出去能不能让人显得有见识/有品味/帮到朋友。
+6. 完读与节奏：排版、分点、emoji、首段钩子，是否让人一路读到底。
+7. 选题与时机：是否踩中当下的集体情绪/热点/普遍痛点/身份焦虑。
+
+最后按这个格式输出报告（Markdown）：
+## 📈 传播力总分：X/10
+## 🎯 为什么会爆（3 句话讲清它的核心传播引擎）
+## 🧩 逐维拆解（上面 7 维，每维：评分 + 证据 + 可复用招式）
+## 🔧 可直接复用的 3-5 招（具体、可操作，能直接搬到我自己的选题上）
+## ⚠️ 风险脚注（只一行，点到为止，不展开）
+"""
 
 
 def _llm_for(config: dict) -> tuple[dict, str]:
@@ -172,12 +202,12 @@ def api_analyze(req: AnalyzeRequest) -> dict:
     text = (req.text or "").strip()
     if len(text) < 10:
         raise HTTPException(status_code=400, detail="先粘贴一篇小红书笔记内容（标题 + 正文 + 标签）。")
-    framework = _analyzer_framework()
-    if not framework:
-        raise HTTPException(status_code=404, detail="未找到 analyzer skill（.agents/skills/xiaohongshu-note-analyzer）。")
     llm, api_key = _llm_for(_config())
-    system = "你是资深小红书内容分析师。严格按用户给的分析框架，对笔记做全维度拆解，输出框架要求的 Markdown 报告，结论具体、可执行。"
-    user = f"【分析框架】\n{framework}\n\n【待分析的小红书笔记】\n{text}\n\n请严格按框架的「输出格式」产出完整分析报告。"
+    system = (
+        "你是顶级的小红书传播力分析师。你只关心一件事：这篇为什么能传播、用户怎么复用它的招式。"
+        "不要道德说教、不要纠结合规（风险只在最后留一行）。结论要具体、可操作，证据要引用原文。"
+    )
+    user = f"{_PROPAGATION_FRAMEWORK}\n\n【待拆解的小红书笔记】\n{text}\n\n请按上面的输出格式产出传播力拆解报告。"
     try:
         report = _post_chat(
             base_url=str(llm.get("base_url", "https://api.deepseek.com")),
@@ -192,7 +222,112 @@ def api_analyze(req: AnalyzeRequest) -> dict:
         )
     except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=f"分析失败：{exc}") from exc
-    return {"report": report}
+    entry = {
+        "id": uuid.uuid4().hex[:12],
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "text": text,
+        "report": report,
+    }
+    with TEARDOWNS_PATH.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return {"report": report, "id": entry["id"]}
+
+
+def _read_teardowns() -> list[dict]:
+    if not TEARDOWNS_PATH.exists():
+        return []
+    rows: list[dict] = []
+    for line in TEARDOWNS_PATH.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            continue
+    return list(reversed(rows))  # 最近在前
+
+
+@app.get("/api/teardowns")
+def api_teardowns() -> list[dict]:
+    """拆解历史（最近在前），列表带预览，详情含完整报告。"""
+    out = []
+    for row in _read_teardowns()[:50]:
+        text = str(row.get("text", ""))
+        out.append(
+            {
+                "id": row.get("id", ""),
+                "timestamp": row.get("timestamp", ""),
+                "preview": text.replace("\n", " ")[:40],
+                "report": row.get("report", ""),
+            }
+        )
+    return out
+
+
+@app.get("/api/playbook")
+def api_get_playbook() -> dict:
+    text = PLAYBOOK_PATH.read_text(encoding="utf-8") if PLAYBOOK_PATH.exists() else ""
+    return {"text": text}
+
+
+class PlaybookUpdate(BaseModel):
+    text: str
+
+
+@app.put("/api/playbook")
+def api_put_playbook(req: PlaybookUpdate) -> dict:
+    PLAYBOOK_PATH.write_text(req.text.rstrip() + "\n", encoding="utf-8")
+    return {"text": PLAYBOOK_PATH.read_text(encoding="utf-8")}
+
+
+class DistillRequest(BaseModel):
+    text: str = ""  # 拆解报告或原文
+    id: str = ""  # 或引用某条 teardown
+
+
+@app.post("/api/playbook/distill")
+def api_distill(req: DistillRequest) -> dict:
+    """从拆解报告提炼可复用招式，去重后追加进 playbook.md（即沉淀进系统）。"""
+    source = (req.text or "").strip()
+    if not source and req.id:
+        for row in _read_teardowns():
+            if row.get("id") == req.id:
+                source = str(row.get("report") or row.get("text") or "")
+                break
+    if len(source) < 20:
+        raise HTTPException(status_code=400, detail="没有可提炼的内容，先拆解一篇或粘贴报告。")
+    llm, api_key = _llm_for(_config())
+    system = "你从一篇爆款传播力拆解里提炼可复用招式。只输出招式条目，不要解释、不要标题。"
+    user = (
+        "从下面内容提炼 3-5 条可直接复用的传播力招式，每条一行、以“- ”开头，"
+        "要具体、可操作、能搬到别的选题上；不要泛泛而谈。\n\n" + source
+    )
+    try:
+        out = _post_chat(
+            base_url=str(llm.get("base_url", "https://api.deepseek.com")),
+            api_key=api_key,
+            payload={
+                "model": llm.get("model", "deepseek-chat"),
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                "temperature": 0.5,
+                "stream": False,
+            },
+            timeout=float(llm.get("timeout_seconds", 60)),
+        )
+    except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=f"提炼失败：{exc}") from exc
+
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip().startswith(("-", "•", "·"))]
+    lines = ["- " + ln.lstrip("-•· ").strip() for ln in lines if ln.lstrip("-•· ").strip()]
+    if not lines:
+        raise HTTPException(status_code=502, detail="未能从报告里提炼出招式，换一篇或检查报告内容。")
+    existing = PLAYBOOK_PATH.read_text(encoding="utf-8") if PLAYBOOK_PATH.exists() else ""
+    fresh = [ln for ln in lines if ln.lstrip("- ").strip() not in existing]
+    if fresh:
+        with PLAYBOOK_PATH.open("a", encoding="utf-8") as f:
+            f.write("\n".join(fresh) + "\n")
+    return {"added": fresh, "skipped": [ln for ln in lines if ln not in fresh], "text": PLAYBOOK_PATH.read_text(encoding="utf-8")}
 
 
 def _run_xhs(script: str, *args: str, timeout: float = 40) -> dict:

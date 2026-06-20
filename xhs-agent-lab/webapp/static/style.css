@@ -649,3 +649,33 @@ button.mini.subtle:hover { background: #e8e1d5; }
   .sidebar-foot { margin-top: 0; margin-left: auto; }
   .view { padding: 18px 16px 32px; }
 }
+
+/* 沉淀闭环：提炼入库 / 拆解历史 / 招式库 */
+.distill-row { margin-top: 12px; display: flex; align-items: center; gap: 12px; }
+.distill-row.hidden { display: none; }
+.distill-msg { font-size: 13px; color: #1f4e3d; }
+
+.teardown-history { margin-top: 18px; border-top: 1px solid #ece5d6; padding-top: 14px; }
+.th-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #6f685c; margin-bottom: 8px; }
+.teardown-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.teardown-list li {
+  padding: 8px 10px;
+  background: #faf7f0;
+  border: 1px solid #ece5d6;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #4a463f;
+  cursor: pointer;
+}
+.teardown-list li:hover { border-color: #1f4e3d; }
+.teardown-list li.th-empty { cursor: default; color: #9a8f7d; background: transparent; border: none; }
+.th-time { color: #9a8f7d; font-size: 12px; margin-right: 6px; }
+
+.playbook-text {
+  width: 100%;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.playbook-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; }

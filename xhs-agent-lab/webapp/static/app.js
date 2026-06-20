@@ -900,13 +900,18 @@ $("settings-modal").onclick = (event) => {
 };
 $("save-settings").onclick = () => saveSettings();
 
+let lastTeardownId = null;
+
 function switchResearchTab(tab) {
   document.querySelectorAll(".research-tab").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.tab === tab);
   });
   $("tab-analyze").classList.toggle("hidden", tab !== "analyze");
+  $("tab-playbook").classList.toggle("hidden", tab !== "playbook");
   $("tab-search").classList.toggle("hidden", tab !== "search");
   if (tab === "search") loadXhsStatus().catch(() => {});
+  if (tab === "analyze") loadTeardowns().catch(() => {});
+  if (tab === "playbook") loadPlaybook().catch(() => {});
 }
 
 async function analyzeNote() {
@@ -916,6 +921,7 @@ async function analyzeNote() {
     return;
   }
   $("analyze-btn").disabled = true;
+  $("distill-row").classList.add("hidden");
   $("analyze-result").textContent = "拆解中…（DeepSeek 分析需几秒到十几秒）";
   try {
     const data = await fetchJson("/api/analyze", {
@@ -924,10 +930,91 @@ async function analyzeNote() {
       body: JSON.stringify({ text }),
     });
     $("analyze-result").textContent = data.report || "（无返回）";
+    lastTeardownId = data.id || null;
+    $("distill-msg").textContent = "";
+    $("distill-row").classList.toggle("hidden", !lastTeardownId);
+    loadTeardowns().catch(() => {});
   } catch (err) {
     $("analyze-result").textContent = "拆解失败：" + err.message;
   } finally {
     $("analyze-btn").disabled = false;
+  }
+}
+
+async function distillTactics() {
+  if (!lastTeardownId) return;
+  $("distill-btn").disabled = true;
+  $("distill-msg").textContent = "提炼中…";
+  try {
+    const data = await fetchJson("/api/playbook/distill", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: lastTeardownId }),
+    });
+    const added = (data.added || []).length;
+    const skipped = (data.skipped || []).length;
+    $("distill-msg").textContent = added
+      ? `已入库 ${added} 条招式${skipped ? `（${skipped} 条已存在）` : ""}，下次生成即生效。`
+      : "没有新招式（都已在库里）。";
+  } catch (err) {
+    $("distill-msg").textContent = "提炼失败：" + err.message;
+  } finally {
+    $("distill-btn").disabled = false;
+  }
+}
+
+async function loadTeardowns() {
+  const list = $("teardown-list");
+  try {
+    const rows = await fetchJson("/api/teardowns");
+    if (!rows.length) {
+      list.innerHTML = `<li class="th-empty">还没有拆解记录。</li>`;
+      return;
+    }
+    list.innerHTML = rows
+      .map(
+        (r) => `<li data-id="${escapeHTML(r.id)}"><span class="th-time">${escapeHTML((r.timestamp || "").replace("T", " "))}</span> ${escapeHTML(r.preview || "")}…</li>`
+      )
+      .join("");
+    list.querySelectorAll("li[data-id]").forEach((li) => {
+      li.onclick = () => {
+        const row = rows.find((r) => r.id === li.dataset.id);
+        if (!row) return;
+        $("analyze-result").textContent = row.report || "";
+        lastTeardownId = row.id;
+        $("distill-msg").textContent = "";
+        $("distill-row").classList.remove("hidden");
+      };
+    });
+  } catch (err) {
+    list.innerHTML = `<li class="th-empty">加载历史失败：${escapeHTML(err.message)}</li>`;
+  }
+}
+
+async function loadPlaybook() {
+  try {
+    const data = await fetchJson("/api/playbook");
+    $("playbook-text").value = data.text || "";
+    $("playbook-msg").textContent = "";
+  } catch (err) {
+    $("playbook-msg").textContent = "加载失败：" + err.message;
+  }
+}
+
+async function savePlaybook() {
+  $("playbook-save").disabled = true;
+  $("playbook-msg").textContent = "保存中…";
+  try {
+    await fetchJson("/api/playbook", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: $("playbook-text").value }),
+    });
+    $("playbook-msg").textContent = "已保存，下次生成即生效。";
+  } catch (err) {
+    $("playbook-msg").textContent = "保存失败：" + err.message;
+  } finally {
+    $("playbook-save").disabled = false;
   }
 }
 
@@ -1006,6 +1093,9 @@ document.querySelectorAll(".research-tab").forEach((btn) => {
   btn.onclick = () => switchResearchTab(btn.dataset.tab);
 });
 $("analyze-btn").onclick = analyzeNote;
+$("distill-btn").onclick = distillTactics;
+$("th-refresh").onclick = () => loadTeardowns().catch(() => {});
+$("playbook-save").onclick = savePlaybook;
 $("xhs-search-btn").onclick = xhsSearch;
 $("xhs-login-btn").onclick = xhsLoginQr;
 

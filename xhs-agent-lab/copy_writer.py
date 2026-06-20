@@ -12,13 +12,17 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+from pathlib import Path
 
 from creative_director import _post_chat
 
 
-# 爆款准则：从 analyzer skill 拆解真实笔记沉淀的规律，注入卡片/正文 prompt，
-# 让自动产出自带"被刷到"的设计。改这里就能持续迭代回灌。
-_XHS_PLAYBOOK = (
+# 爆款准则 / 招式库：外置到 playbook.md，注入卡片/正文 prompt，让自动产出自带"被刷到"的设计。
+# 在 Web「拆传播力」一键入库或手动编辑 playbook.md 即可持续沉淀，改动即时生效、无需改代码。
+_PLAYBOOK_PATH = Path(__file__).resolve().parent / "playbook.md"
+_PLAYBOOK_CACHE: dict = {}
+# 内置兜底：playbook.md 缺失/为空时用这段，保证生成不退化。
+_DEFAULT_PLAYBOOK = (
     "【爆款准则，务必遵守】"
     "1) 封面主标题套钩子公式（痛点型 / 好奇型 / 对比型 / 数字型其一），制造一个具体冲突或反差，"
     "让人忍不住点开；绝不用平铺直叙的陈述句、不用内部测试名或泛泛标题。"
@@ -28,6 +32,18 @@ _XHS_PLAYBOOK = (
     "改用“复盘、判断、自律、决策、系统、留痕”等更安全的表达以降低限流；"
     "不写收益承诺，保留风险与边界意识。"
 )
+
+
+def _playbook() -> str:
+    """读取招式库 playbook.md（按 mtime 缓存）；缺失或为空时回退内置准则。"""
+    try:
+        mtime = _PLAYBOOK_PATH.stat().st_mtime
+    except OSError:
+        return _DEFAULT_PLAYBOOK
+    if _PLAYBOOK_CACHE.get("mtime") != mtime:
+        _PLAYBOOK_CACHE["mtime"] = mtime
+        _PLAYBOOK_CACHE["text"] = _PLAYBOOK_PATH.read_text(encoding="utf-8").strip()
+    return _PLAYBOOK_CACHE.get("text") or _DEFAULT_PLAYBOOK
 
 
 # --------------------------------------------------------------------------- #
@@ -160,7 +176,7 @@ def generate_cards(topic: str, copy_text: str, config: dict, brand: str) -> list
         "  ... 内容页共 6 个\n"
         "]\n"
         "要求：每张内容页 bullets 给 2-3 条；标题彼此不要重复；语言具体、有个人表达。\n\n"
-        + _XHS_PLAYBOOK
+        + _playbook()
         + "\n\n不要输出 JSON 以外的任何内容。"
     )
     try:
@@ -223,7 +239,7 @@ def _generate_body_via_llm(topic: str, cards: list[dict], config: dict, copy_tex
         + "小红书话题标签：除上述核心标签外，可再补 2-3 个更安全的场景词 / 人群词（如 #自律 #个人成长 #效率工具），"
         "避免只堆强金融词导致限流。\n"
         + "如果选题涉及交易/投资/收益，两份正文都要包含一句「不构成投资建议」，并保留风险/边界意识，不写收益承诺。\n\n"
-        + _XHS_PLAYBOOK
+        + _playbook()
         + "\n\n不要输出 JSON 以外的任何内容。"
     )
     try:

@@ -157,15 +157,33 @@
         </div>
         <section class="panel research">
           <div class="research-tabs">
-            <button type="button" class="research-tab active" data-tab="analyze">拆解爆款</button>
+            <button type="button" class="research-tab active" data-tab="analyze">拆传播力</button>
+            <button type="button" class="research-tab" data-tab="playbook">招式库</button>
             <button type="button" class="research-tab" data-tab="search">搜索爆款</button>
           </div>
 
           <div id="tab-analyze" class="research-pane">
-            <p class="research-note">粘贴一篇爆款笔记（标题 + 正文 + 标签），AI 按 6 维（关键词 / 标题钩子 / 限流风险 / 商业度 / 互动 / 结构）拆解「为什么爆」。</p>
+            <p class="research-note">粘贴一篇爆款笔记（标题 + 正文 + 标签），AI 专拆<strong>传播力</strong>：它凭什么停留、激起什么情绪、为什么让人收藏/评论/转发，并给出<strong>可直接复用的招式</strong>。合规风险只做一行脚注。</p>
             <textarea id="analyze-input" rows="6" placeholder="把小红书爆款笔记的标题、正文、标签粘进来…"></textarea>
-            <button id="analyze-btn" type="button" class="primary">开始拆解</button>
+            <button id="analyze-btn" type="button" class="primary">拆传播力</button>
             <pre id="analyze-result" class="research-result"></pre>
+            <div class="distill-row hidden" id="distill-row">
+              <button id="distill-btn" type="button" class="mini primary">⬇ 提炼招式，沉淀进招式库</button>
+              <span id="distill-msg" class="distill-msg"></span>
+            </div>
+            <div class="teardown-history">
+              <div class="th-head"><span>📚 拆解历史</span><button id="th-refresh" type="button" class="mini subtle">刷新</button></div>
+              <ul id="teardown-list" class="teardown-list"></ul>
+            </div>
+          </div>
+
+          <div id="tab-playbook" class="research-pane hidden">
+            <p class="research-note">这是会<strong>注入到每次生成</strong>的招式库（<code>playbook.md</code>）。在「拆传播力」一键入库，或直接在这里编辑——保存后下次生成即生效，无需重启。</p>
+            <textarea id="playbook-text" rows="16" class="playbook-text" placeholder="加载招式库…"></textarea>
+            <div class="playbook-actions">
+              <button id="playbook-save" type="button" class="primary">保存招式库</button>
+              <span id="playbook-msg" class="settings-msg"></span>
+            </div>
           </div>
 
           <div id="tab-search" class="research-pane hidden">
