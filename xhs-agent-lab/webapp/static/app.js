@@ -57,10 +57,16 @@ function renderProgress(progress) {
 }
 
 async function loadPresets() {
-  const presets = await fetchJson("/api/presets");
-  $("style").innerHTML = presets
-    .map((p) => `<option value="${escapeHTML(p.key)}">${escapeHTML(p.name)}</option>`)
+  const data = await fetchJson("/api/presets");
+  const opt = (p) => `<option value="${escapeHTML(p.key)}">${escapeHTML(p.name)}</option>`;
+  let html = opt(data.auto || { key: "", name: "自动匹配" });
+  html += (data.groups || [])
+    .map(
+      (g) =>
+        `<optgroup label="${escapeHTML(g.group)}">` + (g.items || []).map(opt).join("") + `</optgroup>`
+    )
     .join("");
+  $("style").innerHTML = html;
 }
 
 async function loadHistory() {

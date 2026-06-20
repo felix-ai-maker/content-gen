@@ -815,13 +815,31 @@ def _ai_inspiration(topic: str, copy_text: str, target: str, direction: str, con
     return _parse_inspiration(content)
 
 
+PRESET_GROUPS = [
+    ("真实 · 共鸣", ["authentic_moment", "pov_slice", "midnight_mono", "handwritten_journal", "retro_film", "film_photo"]),
+    ("编辑 · 知识", ["magazine_editorial", "signature_mono"]),
+    ("爆款 · 冲击", ["bold_xhs"]),
+    ("美学 · 调性", ["minimal_ins", "warm_editorial", "soft_3d"]),
+    ("题材专属", ["guochao"]),
+]
+
+
 @app.get("/api/presets")
-def api_presets() -> list[dict]:
+def api_presets() -> dict:
     config = _config()
     presets = config.get("style_presets") or {}
     default = (config.get("image_model") or {}).get("default_style")
-    items = [{"key": k, "name": (v or {}).get("name", k)} for k, v in presets.items()]
-    return [{"key": "", "name": f"自动选择（默认 {default or '—'}）"}, *items]
+    groups = []
+    used: set[str] = set()
+    for gname, keys in PRESET_GROUPS:
+        items = [{"key": k, "name": (presets[k] or {}).get("name", k)} for k in keys if k in presets]
+        used.update(k for k in keys if k in presets)
+        if items:
+            groups.append({"group": gname, "items": items})
+    rest = [{"key": k, "name": (v or {}).get("name", k)} for k, v in presets.items() if k not in used]
+    if rest:
+        groups.append({"group": "其它", "items": rest})
+    return {"auto": {"key": "", "name": f"自动匹配（按选题情绪智能选，默认 {default or '—'}）"}, "groups": groups}
 
 
 @app.post("/api/inspire")
