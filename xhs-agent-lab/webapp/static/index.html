@@ -18,9 +18,8 @@
       </div>
 
       <nav class="nav">
-        <button type="button" class="nav-item active" data-view="create"><span class="nav-ico">✍️</span><span>创作</span></button>
+        <button type="button" class="nav-item active" data-view="create"><span class="nav-ico">🛠️</span><span>工作台</span></button>
         <button type="button" class="nav-item" data-view="research"><span class="nav-ico">🔥</span><span>爆款研究</span></button>
-        <button type="button" class="nav-item" data-view="history"><span class="nav-ico">🗂️</span><span>历史发布包</span></button>
       </nav>
 
       <div class="sidebar-foot">
@@ -32,8 +31,8 @@
       <!-- ===== 视图：创作 ===== -->
       <div class="view active" data-view="create">
         <div class="view-head">
-          <h1 class="view-title">✍️ 创作</h1>
-          <p class="view-sub">给一句灵感方向，系统产出图文候选，你只做审美判断。</p>
+          <h1 class="view-title">🛠️ 工作台</h1>
+          <p class="view-sub">给一句灵感方向，系统产出图文候选；下方是历史发布包，点开即回看。</p>
         </div>
         <main>
           <section class="panel form">
@@ -150,6 +149,14 @@
             </div>
           </section>
         </main>
+
+        <section class="panel history">
+          <div class="hist-head">
+            <h2>历史发布包</h2>
+            <button id="hist-refresh" type="button" class="mini subtle">刷新</button>
+          </div>
+          <div id="history" class="hist-gallery"></div>
+        </section>
       </div>
 
       <!-- ===== 视图：爆款研究 ===== -->
@@ -214,16 +221,6 @@
         </section>
       </div>
 
-      <!-- ===== 视图：历史 ===== -->
-      <div class="view" data-view="history">
-        <div class="view-head">
-          <h1 class="view-title">🗂️ 历史发布包</h1>
-          <p class="view-sub">点开任意一个，回看图文、文案与发布检查。</p>
-        </div>
-        <section class="panel history">
-          <ul id="history"></ul>
-        </section>
-      </div>
     </div>
   </div>
 

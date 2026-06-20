@@ -724,3 +724,40 @@ button.mini.subtle:hover { background: #e8e1d5; }
 #pb-name { flex: 0 0 200px; font-weight: 600; }
 #pb-desc { flex: 1; }
 .distill-row .distill-target { width: auto; min-width: 130px; margin: 0; padding: 5px 8px; font-size: 13px; }
+
+/* 历史发布包：封面缩略图画廊（并入工作台） */
+.panel.history { margin-top: 18px; }
+.hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.hist-head h2 { margin: 0; }
+.hist-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 14px;
+}
+.hist-card {
+  background: #fff;
+  border: 1px solid #e4ded2;
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  transition: transform .12s, box-shadow .12s, border-color .12s;
+}
+.hist-card:hover {
+  background: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.1);
+  border-color: #1f4e3d;
+}
+.hist-cover { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; display: block; background: #f1eee7; }
+.hist-nocover { display: flex; align-items: center; justify-content: center; color: #b3aa98; font-size: 13px; }
+.hist-meta { padding: 9px 11px; display: flex; flex-direction: column; gap: 3px; }
+.hist-title {
+  font-size: 13px; color: #2b2820; font-weight: 600; line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.hist-sub { font-size: 11px; color: #9a8f7d; }
+.hist-empty { color: #9a8f7d; font-size: 13px; }

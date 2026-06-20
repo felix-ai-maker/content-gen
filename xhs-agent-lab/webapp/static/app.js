@@ -65,11 +65,30 @@ async function loadPresets() {
 
 async function loadHistory() {
   const pkgs = await fetchJson("/api/packages");
+  if (!pkgs.length) {
+    $("history").innerHTML = `<div class="hist-empty">还没有发布包，生成一个试试。</div>`;
+    return;
+  }
   $("history").innerHTML = pkgs
-    .map((p) => `<li data-name="${encodeURIComponent(p.name)}">${escapeHTML(p.name)}（${p.cards.length} 张）</li>`)
+    .map((p) => {
+      const m = p.name.match(/^(\d{4}-\d{2}-\d{2})_(.*)$/);
+      const date = m ? m[1] : "";
+      const title = m ? m[2] : p.name;
+      const cover =
+        p.cards && p.cards.length
+          ? `<img class="hist-cover" loading="lazy" alt="" src="/api/packages/${encodeURIComponent(p.name)}/cards/${encodeURIComponent(p.cards[0])}" />`
+          : `<div class="hist-cover hist-nocover">无图</div>`;
+      return `<button type="button" class="hist-card" data-name="${encodeURIComponent(p.name)}">
+        ${cover}
+        <div class="hist-meta">
+          <span class="hist-title">${escapeHTML(title)}</span>
+          <span class="hist-sub">${escapeHTML(date)} · ${p.cards.length} 张</span>
+        </div>
+      </button>`;
+    })
     .join("");
-  document.querySelectorAll("#history li").forEach((li) => {
-    li.onclick = () => showPackage(decodeURIComponent(li.dataset.name));
+  document.querySelectorAll(".hist-card").forEach((el) => {
+    el.onclick = () => showPackage(decodeURIComponent(el.dataset.name));
   });
 }
 
@@ -683,6 +702,7 @@ function showCurrent() {
 async function showPackage(name) {
   try {
     switchView("create");
+    window.scrollTo({ top: 0, behavior: "smooth" });
     viewing = name;
     const pkgs = await fetchJson("/api/packages");
     const pkg = pkgs.find((p) => p.name === name);
@@ -914,6 +934,8 @@ function switchResearchTab(tab) {
   if (tab === "analyze") loadTeardowns().catch(() => {});
   if (tab === "playbook") loadPlaybook().catch(() => {});
 }
+
+// 视图切换里历史已并入工作台（create），不再单独处理 history。
 
 async function analyzeNote() {
   const text = $("analyze-input").value.trim();
@@ -1253,7 +1275,6 @@ function switchView(view) {
   document.querySelectorAll(".view").forEach((v) => {
     v.classList.toggle("active", v.dataset.view === view);
   });
-  if (view === "history") loadHistory().catch(() => {});
 }
 
 document.querySelectorAll(".nav-item[data-view]").forEach((btn) => {
@@ -1274,6 +1295,7 @@ $("pb-del").onclick = deletePlaybook;
 $("pb-setactive").onclick = setActivePlaybook;
 $("pb-name").oninput = applyPbMeta;
 $("pb-desc").oninput = applyPbMeta;
+$("hist-refresh").onclick = () => loadHistory().catch(() => {});
 $("xhs-search-btn").onclick = xhsSearch;
 $("xhs-login-btn").onclick = xhsLoginQr;
 
