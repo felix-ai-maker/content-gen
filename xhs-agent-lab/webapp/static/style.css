@@ -679,3 +679,39 @@ button.mini.subtle:hover { background: #e8e1d5; }
   resize: vertical;
 }
 .playbook-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+
+/* 分类招式库 */
+.playbook-cats { display: flex; flex-direction: column; gap: 12px; }
+.pb-empty, .pb-cat .pb-tactics li.pb-none { color: #9a8f7d; font-size: 13px; }
+.pb-cat {
+  border: 1px solid #e4ded2;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fff;
+}
+.pb-cat.off { background: #f6f3ec; opacity: 0.72; }
+.pb-cat-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.pb-toggle { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #6f685c; white-space: nowrap; margin: 0; }
+.pb-name {
+  flex: 1; font-size: 14px; font-weight: 600;
+  border: 1px solid transparent; background: transparent;
+  padding: 4px 6px; border-radius: 6px; margin: 0;
+}
+.pb-name:hover, .pb-name:focus { border-color: #d8cfbd; background: #fcfbf8; }
+.pb-count { font-size: 12px; color: #9a8f7d; white-space: nowrap; }
+.pb-tactics { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.pb-tactics li {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: 13px; line-height: 1.6; color: #3a362f;
+  background: #faf7f0; border-radius: 7px; padding: 7px 9px;
+}
+.pb-tactics li span { flex: 1; }
+.pb-del {
+  background: transparent; color: #b08; padding: 0 4px; font-size: 13px;
+  color: #c0563a; line-height: 1.4;
+}
+.pb-del:hover { background: transparent; color: #a33; }
+.pb-add-input {
+  width: 100%; font-size: 13px; padding: 7px 9px;
+  border: 1px dashed #d8cfbd; border-radius: 7px; background: #fcfbf8;
+}

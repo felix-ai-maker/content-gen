@@ -178,9 +178,10 @@
           </div>
 
           <div id="tab-playbook" class="research-pane hidden">
-            <p class="research-note">这是会<strong>注入到每次生成</strong>的招式库（<code>playbook.md</code>）。在「拆传播力」一键入库，或直接在这里编辑——保存后下次生成即生效，无需重启。</p>
-            <textarea id="playbook-text" rows="16" class="playbook-text" placeholder="加载招式库…"></textarea>
+            <p class="research-note">分类招式库（<code>playbook.json</code>）。<strong>只有勾选启用的类别</strong>会注入到每次生成；可删招式、加招式、加分类。改完点保存，下次生成即生效。</p>
+            <div id="playbook-cats" class="playbook-cats"></div>
             <div class="playbook-actions">
+              <button id="playbook-add-cat" type="button" class="mini subtle">+ 新增分类</button>
               <button id="playbook-save" type="button" class="primary">保存招式库</button>
               <span id="playbook-msg" class="settings-msg"></span>
             </div>

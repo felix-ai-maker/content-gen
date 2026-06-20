@@ -951,10 +951,19 @@ async function distillTactics() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: lastTeardownId }),
     });
-    const added = (data.added || []).length;
-    const skipped = (data.skipped || []).length;
-    $("distill-msg").textContent = added
-      ? `已入库 ${added} 条招式${skipped ? `（${skipped} 条已存在）` : ""}，下次生成即生效。`
+    const added = data.added || [];
+    if (data.categories) {
+      playbookCats = data.categories.map((c) => ({
+        key: c.key || "",
+        name: c.name || "未命名",
+        enabled: c.enabled !== false,
+        tactics: Array.isArray(c.tactics) ? c.tactics.slice() : [],
+      }));
+      renderPlaybook();
+    }
+    const cats = [...new Set(added.map((a) => a.category))].join("、");
+    $("distill-msg").textContent = added.length
+      ? `已入库 ${added.length} 条招式（${cats}），去「招式库」看，下次生成即生效。`
       : "没有新招式（都已在库里）。";
   } catch (err) {
     $("distill-msg").textContent = "提炼失败：" + err.message;
@@ -991,25 +1000,91 @@ async function loadTeardowns() {
   }
 }
 
+let playbookCats = [];
+
+function renderPlaybook() {
+  const box = $("playbook-cats");
+  if (!playbookCats.length) {
+    box.innerHTML = `<div class="pb-empty">招式库为空。</div>`;
+    return;
+  }
+  box.innerHTML = playbookCats
+    .map(
+      (cat, ci) => `
+    <div class="pb-cat ${cat.enabled ? "" : "off"}">
+      <div class="pb-cat-head">
+        <label class="pb-toggle"><input type="checkbox" data-ci="${ci}" class="pb-enable" ${cat.enabled ? "checked" : ""} /> 启用</label>
+        <input type="text" class="pb-name" data-ci="${ci}" value="${escapeHTML(cat.name)}" />
+        <span class="pb-count">${cat.tactics.length} 条</span>
+      </div>
+      <ul class="pb-tactics">
+        ${cat.tactics
+          .map(
+            (t, ti) =>
+              `<li><span>${escapeHTML(t)}</span><button type="button" class="pb-del" data-ci="${ci}" data-ti="${ti}" title="删除">✕</button></li>`
+          )
+          .join("")}
+      </ul>
+      <div class="pb-add"><input type="text" class="pb-add-input" data-ci="${ci}" placeholder="手动加一条招式…回车添加" /></div>
+    </div>`
+    )
+    .join("");
+
+  box.querySelectorAll(".pb-enable").forEach((el) => {
+    el.onchange = () => (playbookCats[+el.dataset.ci].enabled = el.checked);
+  });
+  box.querySelectorAll(".pb-name").forEach((el) => {
+    el.oninput = () => (playbookCats[+el.dataset.ci].name = el.value);
+  });
+  box.querySelectorAll(".pb-del").forEach((el) => {
+    el.onclick = () => {
+      playbookCats[+el.dataset.ci].tactics.splice(+el.dataset.ti, 1);
+      renderPlaybook();
+    };
+  });
+  box.querySelectorAll(".pb-add-input").forEach((el) => {
+    el.onkeydown = (e) => {
+      if (e.key !== "Enter") return;
+      const v = el.value.trim();
+      if (!v) return;
+      playbookCats[+el.dataset.ci].tactics.push(v);
+      renderPlaybook();
+    };
+  });
+}
+
 async function loadPlaybook() {
   try {
     const data = await fetchJson("/api/playbook");
-    $("playbook-text").value = data.text || "";
+    playbookCats = (data.categories || []).map((c) => ({
+      key: c.key || "",
+      name: c.name || "未命名",
+      enabled: c.enabled !== false,
+      tactics: Array.isArray(c.tactics) ? c.tactics.slice() : [],
+    }));
     $("playbook-msg").textContent = "";
+    renderPlaybook();
   } catch (err) {
     $("playbook-msg").textContent = "加载失败：" + err.message;
   }
+}
+
+function addPlaybookCategory() {
+  playbookCats.push({ key: "", name: "新分类", enabled: true, tactics: [] });
+  renderPlaybook();
 }
 
 async function savePlaybook() {
   $("playbook-save").disabled = true;
   $("playbook-msg").textContent = "保存中…";
   try {
-    await fetchJson("/api/playbook", {
+    const data = await fetchJson("/api/playbook", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: $("playbook-text").value }),
+      body: JSON.stringify({ categories: playbookCats }),
     });
+    playbookCats = data.categories || playbookCats;
+    renderPlaybook();
     $("playbook-msg").textContent = "已保存，下次生成即生效。";
   } catch (err) {
     $("playbook-msg").textContent = "保存失败：" + err.message;
@@ -1096,6 +1171,7 @@ $("analyze-btn").onclick = analyzeNote;
 $("distill-btn").onclick = distillTactics;
 $("th-refresh").onclick = () => loadTeardowns().catch(() => {});
 $("playbook-save").onclick = savePlaybook;
+$("playbook-add-cat").onclick = addPlaybookCategory;
 $("xhs-search-btn").onclick = xhsSearch;
 $("xhs-login-btn").onclick = xhsLoginQr;
 

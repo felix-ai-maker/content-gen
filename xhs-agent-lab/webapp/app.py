@@ -140,9 +140,19 @@ ANALYZER_SKILL_MD = SKILLS_DIR / "xiaohongshu-note-analyzer" / "SKILL.md"
 XHS_SCRIPTS = SKILLS_DIR / "xiaohongshu" / "scripts"
 _ANALYZER_FRAMEWORK: dict = {}
 
-# 沉淀闭环：拆解存档 + 招式库（copy_writer 生成时会读 playbook.md）。
-PLAYBOOK_PATH = PROJECT_ROOT / "playbook.md"
+# 沉淀闭环：拆解存档 + 分类招式库（copy_writer 生成时读 playbook.json，只注入启用类别）。
+PLAYBOOK_PATH = PROJECT_ROOT / "playbook.json"
 TEARDOWNS_PATH = PROJECT_ROOT / "teardowns.jsonl"
+DEFAULT_CATEGORIES = [
+    ("base", "基础准则"),
+    ("title", "标题钩子"),
+    ("emotion", "情绪驱动"),
+    ("save", "收藏动机"),
+    ("interact", "互动评论"),
+    ("social", "社交货币 / 转发"),
+    ("structure", "结构节奏"),
+    ("topic", "选题时机"),
+]
 
 
 def _analyzer_framework() -> str:
@@ -265,20 +275,56 @@ def api_teardowns() -> list[dict]:
     return out
 
 
+def _load_playbook() -> dict:
+    if PLAYBOOK_PATH.exists():
+        try:
+            data = json.loads(PLAYBOOK_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("categories"), list):
+                return data
+        except ValueError:
+            pass
+    return {"categories": [{"key": k, "name": n, "enabled": True, "tactics": []} for k, n in DEFAULT_CATEGORIES]}
+
+
+def _normalize_categories(raw: list) -> list[dict]:
+    cats: list[dict] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip() or uuid.uuid4().hex[:6]
+        while key in seen:
+            key = uuid.uuid4().hex[:6]
+        seen.add(key)
+        cats.append(
+            {
+                "key": key,
+                "name": str(item.get("name") or "未命名").strip(),
+                "enabled": bool(item.get("enabled", True)),
+                "tactics": [str(t).strip() for t in (item.get("tactics") or []) if str(t).strip()],
+            }
+        )
+    return cats
+
+
+def _save_playbook(data: dict) -> None:
+    PLAYBOOK_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 @app.get("/api/playbook")
 def api_get_playbook() -> dict:
-    text = PLAYBOOK_PATH.read_text(encoding="utf-8") if PLAYBOOK_PATH.exists() else ""
-    return {"text": text}
+    return _load_playbook()
 
 
 class PlaybookUpdate(BaseModel):
-    text: str
+    categories: list[dict]
 
 
 @app.put("/api/playbook")
 def api_put_playbook(req: PlaybookUpdate) -> dict:
-    PLAYBOOK_PATH.write_text(req.text.rstrip() + "\n", encoding="utf-8")
-    return {"text": PLAYBOOK_PATH.read_text(encoding="utf-8")}
+    data = {"categories": _normalize_categories(req.categories)}
+    _save_playbook(data)
+    return data
 
 
 class DistillRequest(BaseModel):
@@ -286,9 +332,25 @@ class DistillRequest(BaseModel):
     id: str = ""  # 或引用某条 teardown
 
 
+def _extract_json_array(content: str) -> list:
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lstrip().lower().startswith("json"):
+            text = text.lstrip()[4:]
+    start, end = text.find("["), text.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        return []
+    try:
+        data = json.loads(text[start : end + 1])
+    except ValueError:
+        return []
+    return data if isinstance(data, list) else []
+
+
 @app.post("/api/playbook/distill")
 def api_distill(req: DistillRequest) -> dict:
-    """从拆解报告提炼可复用招式，去重后追加进 playbook.md（即沉淀进系统）。"""
+    """从拆解报告提炼招式 + 自动归类，去重后写进对应类别（即沉淀进系统）。"""
     source = (req.text or "").strip()
     if not source and req.id:
         for row in _read_teardowns():
@@ -298,10 +360,16 @@ def api_distill(req: DistillRequest) -> dict:
     if len(source) < 20:
         raise HTTPException(status_code=400, detail="没有可提炼的内容，先拆解一篇或粘贴报告。")
     llm, api_key = _llm_for(_config())
-    system = "你从一篇爆款传播力拆解里提炼可复用招式。只输出招式条目，不要解释、不要标题。"
+    data = _load_playbook()
+    cats = data["categories"]
+    by_key = {c["key"]: c for c in cats}
+    guide = "、".join(f"{c['key']}={c['name']}" for c in cats) or "title=标题钩子、emotion=情绪驱动、save=收藏动机"
+    system = "你从爆款传播力拆解里提炼可复用招式，并给每条归类。只输出 JSON，不要解释。"
     user = (
-        "从下面内容提炼 3-5 条可直接复用的传播力招式，每条一行、以“- ”开头，"
-        "要具体、可操作、能搬到别的选题上；不要泛泛而谈。\n\n" + source
+        f"可用类别（key=名称）：{guide}\n"
+        "从下面内容提炼 3-5 条可直接复用的传播力招式，每条归到最合适的类别 key。"
+        '严格只输出 JSON 数组：[{"category":"类别key","tactic":"招式，一句话，具体可操作"}]，'
+        "不要输出 JSON 以外的任何内容。\n\n" + source
     )
     try:
         out = _post_chat(
@@ -318,16 +386,26 @@ def api_distill(req: DistillRequest) -> dict:
     except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=f"提炼失败：{exc}") from exc
 
-    lines = [ln.strip() for ln in out.splitlines() if ln.strip().startswith(("-", "•", "·"))]
-    lines = ["- " + ln.lstrip("-•· ").strip() for ln in lines if ln.lstrip("-•· ").strip()]
-    if not lines:
-        raise HTTPException(status_code=502, detail="未能从报告里提炼出招式，换一篇或检查报告内容。")
-    existing = PLAYBOOK_PATH.read_text(encoding="utf-8") if PLAYBOOK_PATH.exists() else ""
-    fresh = [ln for ln in lines if ln.lstrip("- ").strip() not in existing]
-    if fresh:
-        with PLAYBOOK_PATH.open("a", encoding="utf-8") as f:
-            f.write("\n".join(fresh) + "\n")
-    return {"added": fresh, "skipped": [ln for ln in lines if ln not in fresh], "text": PLAYBOOK_PATH.read_text(encoding="utf-8")}
+    items = _extract_json_array(out)
+    fallback_cat = by_key.get("base") or (cats[0] if cats else None)
+    added: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        tactic = str(item.get("tactic", "")).strip()
+        if not tactic:
+            continue
+        cat = by_key.get(str(item.get("category", "")).strip()) or fallback_cat
+        if cat is None:
+            continue
+        if tactic in cat["tactics"]:
+            continue
+        cat["tactics"].append(tactic)
+        added.append({"category": cat["name"], "tactic": tactic})
+    if not added:
+        raise HTTPException(status_code=502, detail="未能提炼出新招式（可能都已在库里，或报告内容不足）。")
+    _save_playbook(data)
+    return {"added": added, "categories": cats}
 
 
 def _run_xhs(script: str, *args: str, timeout: float = 40) -> dict:

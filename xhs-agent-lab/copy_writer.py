@@ -17,11 +17,12 @@ from pathlib import Path
 from creative_director import _post_chat
 
 
-# 爆款准则 / 招式库：外置到 playbook.md，注入卡片/正文 prompt，让自动产出自带"被刷到"的设计。
-# 在 Web「拆传播力」一键入库或手动编辑 playbook.md 即可持续沉淀，改动即时生效、无需改代码。
-_PLAYBOOK_PATH = Path(__file__).resolve().parent / "playbook.md"
+# 爆款准则 / 招式库：外置到分类的 playbook.json，注入卡片/正文 prompt，让自动产出自带"被刷到"的设计。
+# 每个类别带 enabled 开关，只注入"启用"的类别。在 Web「招式库」勾选/编辑或一键入库即可持续沉淀，
+# 改动即时生效、无需改代码。
+_PLAYBOOK_PATH = Path(__file__).resolve().parent / "playbook.json"
 _PLAYBOOK_CACHE: dict = {}
-# 内置兜底：playbook.md 缺失/为空时用这段，保证生成不退化。
+# 内置兜底：playbook.json 缺失/为空/读坏时用这段，保证生成不退化。
 _DEFAULT_PLAYBOOK = (
     "【爆款准则，务必遵守】"
     "1) 封面主标题套钩子公式（痛点型 / 好奇型 / 对比型 / 数字型其一），制造一个具体冲突或反差，"
@@ -35,15 +36,34 @@ _DEFAULT_PLAYBOOK = (
 
 
 def _playbook() -> str:
-    """读取招式库 playbook.md（按 mtime 缓存）；缺失或为空时回退内置准则。"""
+    """从 playbook.json 拼出注入文本（按 mtime 缓存）：只取启用类别的招式。
+    缺失/为空/读坏时回退内置准则，绝不让生成退化。"""
     try:
         mtime = _PLAYBOOK_PATH.stat().st_mtime
     except OSError:
         return _DEFAULT_PLAYBOOK
     if _PLAYBOOK_CACHE.get("mtime") != mtime:
         _PLAYBOOK_CACHE["mtime"] = mtime
-        _PLAYBOOK_CACHE["text"] = _PLAYBOOK_PATH.read_text(encoding="utf-8").strip()
+        _PLAYBOOK_CACHE["text"] = _build_playbook_text(_PLAYBOOK_PATH)
     return _PLAYBOOK_CACHE.get("text") or _DEFAULT_PLAYBOOK
+
+
+def _build_playbook_text(path: Path) -> str:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return _DEFAULT_PLAYBOOK
+    blocks: list[str] = []
+    for cat in data.get("categories", []):
+        if not isinstance(cat, dict) or not cat.get("enabled", True):
+            continue
+        tactics = [str(t).strip() for t in cat.get("tactics", []) if str(t).strip()]
+        if not tactics:
+            continue
+        blocks.append(f"【{cat.get('name', '')}】\n" + "\n".join(f"- {t}" for t in tactics))
+    if not blocks:
+        return _DEFAULT_PLAYBOOK
+    return "【爆款准则 / 招式库，务必参考】\n" + "\n\n".join(blocks)
 
 
 # --------------------------------------------------------------------------- #
