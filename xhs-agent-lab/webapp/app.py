@@ -556,6 +556,7 @@ class GenerateRequest(BaseModel):
     mode: str = "background"  # background=固定排版正式出图 / local=草稿省配额 / direct=实验整卡
     extra_brief: str = ""
     playbook: str = ""
+    direction: str = ""  # 灵感关键词/方向，锚定生成不偏题
     push: bool = False
 
 
@@ -846,6 +847,7 @@ def api_generate(req: GenerateRequest) -> dict:
         "mode": req.mode,
         "extra_brief": req.extra_brief,
         "playbook": req.playbook,
+        "direction": req.direction,
         "push": req.push,
     }
     threading.Thread(target=_run_task, args=(task_id, params), daemon=True).start()

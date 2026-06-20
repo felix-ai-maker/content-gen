@@ -782,6 +782,7 @@ async function generate() {
     mode: $("mode").value,
     extra_brief: $("extra").value,
     playbook: $("playbook").value,
+    direction: $("inspire-direction").value,
     push: $("push").checked,
   };
   try {

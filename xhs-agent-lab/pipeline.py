@@ -650,6 +650,7 @@ def generate_package(
     mode: str = "background",  # "background" | "local" | "direct"
     extra_brief: str = "",
     playbook: str = "",
+    direction: str = "",
     push: bool = True,
     config: dict | None = None,
     config_path: Path | None = None,
@@ -673,6 +674,8 @@ def generate_package(
         config["extra_brief"] = extra_brief.strip()
     if playbook and playbook.strip():
         config["playbook_id"] = playbook.strip()
+    if direction and direction.strip():
+        config["anchor"] = direction.strip()
 
     resolved_copy, copy_source = read_copy_input(copy_text=copy_text or None, copy_file=copy_file)
     cards, cards_source = load_cards(project_root, cards_file, topic, resolved_copy, config)
@@ -778,6 +781,7 @@ def generate_package(
         "mode": mode,
         "extra_brief": extra_brief or "",
         "playbook": playbook or "",
+        "direction": direction or "",
         "push": bool(push),
     }
     write_json(output_dir / "inputs.json", inputs)

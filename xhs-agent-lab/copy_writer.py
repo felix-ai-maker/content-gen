@@ -206,9 +206,14 @@ def generate_cards(topic: str, copy_text: str, config: dict, brand: str) -> list
         "你写第一人称、克制、具体的中文，不写空泛鸡汤，不用营销腔，不夸张承诺，不给投资建议。"
         "你严格围绕用户给的这次选题来写，绝不套用与本选题无关的固定模板或案例。"
     )
+    anchor = str((config or {}).get("anchor") or "").strip()
+    anchor_line = (
+        f"必须紧扣并贯穿这些核心关键词/元素（不得偏离到无关方向）：{anchor}\n" if anchor else ""
+    )
     user = (
         f"本次选题：{topic.strip() or '未填写'}\n"
-        f"原始素材 / 关键词（可能为空）：\n{copy_text.strip() or '（无，请只依据选题发挥）'}\n\n"
+        + anchor_line
+        + f"原始素材 / 关键词（可能为空）：\n{copy_text.strip() or '（无，请只依据选题发挥）'}\n\n"
         "请产出一套 7 张图文卡：第 1 张是封面，后 6 张是内容页，逻辑上层层递进（通常是"
         "问题→为什么→怎么做→边界/风险→收束）。严格只输出一个 JSON 数组，共 7 个元素：\n"
         "[\n"
@@ -269,8 +274,10 @@ def _generate_body_via_llm(topic: str, cards: list[dict], config: dict, copy_tex
         "不用营销腔（不说赋能、降本增效、深度解析、干货满满、建议收藏这类词），不夸张承诺，不给投资建议。"
         "你严格根据用户给的这套卡片内容来写正文，绝不引入与本选题无关的固定叙事。"
     )
+    anchor = str((config or {}).get("anchor") or "").strip()
     user = (
         f"本次选题：{topic.strip()}\n"
+        + (f"必须紧扣并贯穿这些核心关键词/元素：{anchor}\n" if anchor else "")
         + (f"品牌署名：{brand}\n" if brand else "")
         + "\n这套图文卡的逐页内容如下，请据此写两份正文（不要照抄卡片，要展开成自然的口语化表达）：\n"
         + _cards_context(cards)
