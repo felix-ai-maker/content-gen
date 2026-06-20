@@ -649,6 +649,7 @@ def generate_package(
     style: str | None = None,
     mode: str = "background",  # "background" | "local" | "direct"
     extra_brief: str = "",
+    playbook: str = "",
     push: bool = True,
     config: dict | None = None,
     config_path: Path | None = None,
@@ -670,6 +671,8 @@ def generate_package(
         config.setdefault("image_model", {})["enabled"] = False
     if extra_brief and extra_brief.strip():
         config["extra_brief"] = extra_brief.strip()
+    if playbook and playbook.strip():
+        config["playbook_id"] = playbook.strip()
 
     resolved_copy, copy_source = read_copy_input(copy_text=copy_text or None, copy_file=copy_file)
     cards, cards_source = load_cards(project_root, cards_file, topic, resolved_copy, config)
@@ -774,6 +777,7 @@ def generate_package(
         "style": style or "",
         "mode": mode,
         "extra_brief": extra_brief or "",
+        "playbook": playbook or "",
         "push": bool(push),
     }
     write_json(output_dir / "inputs.json", inputs)

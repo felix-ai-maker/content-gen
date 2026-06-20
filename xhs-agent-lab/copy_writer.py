@@ -35,26 +35,46 @@ _DEFAULT_PLAYBOOK = (
 )
 
 
-def _playbook() -> str:
-    """从 playbook.json 拼出注入文本（按 mtime 缓存）：只取启用类别的招式。
-    缺失/为空/读坏时回退内置准则，绝不让生成退化。"""
+def _playbook(config: dict | None = None) -> str:
+    """从 playbook.json 拼出注入文本（按 mtime + 选中打法缓存）：取选中打法里启用类别的招式。
+    config['playbook_id'] 指定用哪套打法；未指定用 active。缺失/为空/读坏回退内置准则。"""
+    playbook_id = str((config or {}).get("playbook_id") or "").strip()
     try:
         mtime = _PLAYBOOK_PATH.stat().st_mtime
     except OSError:
         return _DEFAULT_PLAYBOOK
-    if _PLAYBOOK_CACHE.get("mtime") != mtime:
-        _PLAYBOOK_CACHE["mtime"] = mtime
-        _PLAYBOOK_CACHE["text"] = _build_playbook_text(_PLAYBOOK_PATH)
+    cache_key = (mtime, playbook_id)
+    if _PLAYBOOK_CACHE.get("key") != cache_key:
+        _PLAYBOOK_CACHE["key"] = cache_key
+        _PLAYBOOK_CACHE["text"] = _build_playbook_text(_PLAYBOOK_PATH, playbook_id)
     return _PLAYBOOK_CACHE.get("text") or _DEFAULT_PLAYBOOK
 
 
-def _build_playbook_text(path: Path) -> str:
+def _pick_playbook(data: dict, playbook_id: str) -> dict | None:
+    playbooks = data.get("playbooks")
+    if not isinstance(playbooks, list) or not playbooks:
+        return None
+    if playbook_id:
+        for pb in playbooks:
+            if isinstance(pb, dict) and pb.get("id") == playbook_id:
+                return pb
+    active = data.get("active")
+    for pb in playbooks:
+        if isinstance(pb, dict) and pb.get("id") == active:
+            return pb
+    return playbooks[0] if isinstance(playbooks[0], dict) else None
+
+
+def _build_playbook_text(path: Path, playbook_id: str = "") -> str:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (ValueError, OSError):
         return _DEFAULT_PLAYBOOK
+    # 新结构 {active, playbooks:[{categories}]}；兼容旧结构 {categories}。
+    pb = _pick_playbook(data, playbook_id)
+    categories = pb.get("categories", []) if pb else data.get("categories", [])
     blocks: list[str] = []
-    for cat in data.get("categories", []):
+    for cat in categories:
         if not isinstance(cat, dict) or not cat.get("enabled", True):
             continue
         tactics = [str(t).strip() for t in cat.get("tactics", []) if str(t).strip()]
@@ -63,7 +83,10 @@ def _build_playbook_text(path: Path) -> str:
         blocks.append(f"【{cat.get('name', '')}】\n" + "\n".join(f"- {t}" for t in tactics))
     if not blocks:
         return _DEFAULT_PLAYBOOK
-    return "【爆款准则 / 招式库，务必参考】\n" + "\n\n".join(blocks)
+    header = "【爆款准则 / 招式库，务必参考】"
+    if pb and pb.get("name"):
+        header = f"【本篇采用打法：{pb.get('name')}，务必参考】"
+    return header + "\n" + "\n\n".join(blocks)
 
 
 # --------------------------------------------------------------------------- #
@@ -196,7 +219,7 @@ def generate_cards(topic: str, copy_text: str, config: dict, brand: str) -> list
         "  ... 内容页共 6 个\n"
         "]\n"
         "要求：每张内容页 bullets 给 2-3 条；标题彼此不要重复；语言具体、有个人表达。\n\n"
-        + _playbook()
+        + _playbook(config)
         + "\n\n不要输出 JSON 以外的任何内容。"
     )
     try:
@@ -259,7 +282,7 @@ def _generate_body_via_llm(topic: str, cards: list[dict], config: dict, copy_tex
         + "小红书话题标签：除上述核心标签外，可再补 2-3 个更安全的场景词 / 人群词（如 #自律 #个人成长 #效率工具），"
         "避免只堆强金融词导致限流。\n"
         + "如果选题涉及交易/投资/收益，两份正文都要包含一句「不构成投资建议」，并保留风险/边界意识，不写收益承诺。\n\n"
-        + _playbook()
+        + _playbook(config)
         + "\n\n不要输出 JSON 以外的任何内容。"
     )
     try:

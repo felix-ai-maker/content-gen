@@ -275,21 +275,38 @@ def api_teardowns() -> list[dict]:
     return out
 
 
+def _default_categories() -> list[dict]:
+    return [{"key": k, "name": n, "enabled": True, "tactics": []} for k, n in DEFAULT_CATEGORIES]
+
+
+def _default_playbook_doc() -> dict:
+    return {
+        "active": "default",
+        "playbooks": [{"id": "default", "name": "默认打法", "desc": "通用爆款准则。", "categories": _default_categories()}],
+    }
+
+
 def _load_playbook() -> dict:
+    """统一返回新结构 {active, playbooks:[{id,name,desc,categories}]}；兼容旧 {categories}。"""
     if PLAYBOOK_PATH.exists():
         try:
             data = json.loads(PLAYBOOK_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and isinstance(data.get("categories"), list):
-                return data
         except ValueError:
-            pass
-    return {"categories": [{"key": k, "name": n, "enabled": True, "tactics": []} for k, n in DEFAULT_CATEGORIES]}
+            data = None
+        if isinstance(data, dict) and isinstance(data.get("playbooks"), list) and data["playbooks"]:
+            return data
+        if isinstance(data, dict) and isinstance(data.get("categories"), list):
+            return {
+                "active": "default",
+                "playbooks": [{"id": "default", "name": "默认打法", "desc": "", "categories": data["categories"]}],
+            }
+    return _default_playbook_doc()
 
 
 def _normalize_categories(raw: list) -> list[dict]:
     cats: list[dict] = []
     seen: set[str] = set()
-    for item in raw:
+    for item in raw or []:
         if not isinstance(item, dict):
             continue
         key = str(item.get("key") or "").strip() or uuid.uuid4().hex[:6]
@@ -307,6 +324,27 @@ def _normalize_categories(raw: list) -> list[dict]:
     return cats
 
 
+def _normalize_playbooks(raw: list) -> list[dict]:
+    pbs: list[dict] = []
+    seen: set[str] = set()
+    for item in raw or []:
+        if not isinstance(item, dict):
+            continue
+        pid = str(item.get("id") or "").strip() or uuid.uuid4().hex[:8]
+        while pid in seen:
+            pid = uuid.uuid4().hex[:8]
+        seen.add(pid)
+        pbs.append(
+            {
+                "id": pid,
+                "name": str(item.get("name") or "未命名打法").strip(),
+                "desc": str(item.get("desc") or "").strip(),
+                "categories": _normalize_categories(item.get("categories") or []),
+            }
+        )
+    return pbs
+
+
 def _save_playbook(data: dict) -> None:
     PLAYBOOK_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -316,13 +354,29 @@ def api_get_playbook() -> dict:
     return _load_playbook()
 
 
+@app.get("/api/playbooks")
+def api_playbooks() -> dict:
+    """轻量列表，供创作页「招式打法」下拉。"""
+    doc = _load_playbook()
+    return {
+        "active": doc.get("active", ""),
+        "playbooks": [{"id": p["id"], "name": p["name"], "desc": p.get("desc", "")} for p in doc["playbooks"]],
+    }
+
+
 class PlaybookUpdate(BaseModel):
-    categories: list[dict]
+    active: str = ""
+    playbooks: list[dict]
 
 
 @app.put("/api/playbook")
 def api_put_playbook(req: PlaybookUpdate) -> dict:
-    data = {"categories": _normalize_categories(req.categories)}
+    pbs = _normalize_playbooks(req.playbooks)
+    if not pbs:
+        pbs = _default_playbook_doc()["playbooks"]
+    ids = {p["id"] for p in pbs}
+    active = req.active if req.active in ids else pbs[0]["id"]
+    data = {"active": active, "playbooks": pbs}
     _save_playbook(data)
     return data
 
@@ -330,6 +384,7 @@ def api_put_playbook(req: PlaybookUpdate) -> dict:
 class DistillRequest(BaseModel):
     text: str = ""  # 拆解报告或原文
     id: str = ""  # 或引用某条 teardown
+    playbook_id: str = ""  # 沉淀到哪套打法（空=当前 active）
 
 
 def _extract_json_array(content: str) -> list:
@@ -361,7 +416,12 @@ def api_distill(req: DistillRequest) -> dict:
         raise HTTPException(status_code=400, detail="没有可提炼的内容，先拆解一篇或粘贴报告。")
     llm, api_key = _llm_for(_config())
     data = _load_playbook()
-    cats = data["categories"]
+    target_id = req.playbook_id or data.get("active")
+    pb = next((p for p in data["playbooks"] if p["id"] == target_id), None) or data["playbooks"][0]
+    cats = pb["categories"]
+    if not cats:
+        cats = _default_categories()
+        pb["categories"] = cats
     by_key = {c["key"]: c for c in cats}
     guide = "、".join(f"{c['key']}={c['name']}" for c in cats) or "title=标题钩子、emotion=情绪驱动、save=收藏动机"
     system = "你从爆款传播力拆解里提炼可复用招式，并给每条归类。只输出 JSON，不要解释。"
@@ -405,7 +465,7 @@ def api_distill(req: DistillRequest) -> dict:
     if not added:
         raise HTTPException(status_code=502, detail="未能提炼出新招式（可能都已在库里，或报告内容不足）。")
     _save_playbook(data)
-    return {"added": added, "categories": cats}
+    return {"added": added, "playbook": pb["name"], "playbook_id": pb["id"]}
 
 
 def _run_xhs(script: str, *args: str, timeout: float = 40) -> dict:
@@ -495,6 +555,7 @@ class GenerateRequest(BaseModel):
     style: Optional[str] = None
     mode: str = "background"  # background=固定排版正式出图 / local=草稿省配额 / direct=实验整卡
     extra_brief: str = ""
+    playbook: str = ""
     push: bool = False
 
 
@@ -784,6 +845,7 @@ def api_generate(req: GenerateRequest) -> dict:
         "style": req.style or None,
         "mode": req.mode,
         "extra_brief": req.extra_brief,
+        "playbook": req.playbook,
         "push": req.push,
     }
     threading.Thread(target=_run_task, args=(task_id, params), daemon=True).start()

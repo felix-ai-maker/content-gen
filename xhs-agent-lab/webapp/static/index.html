@@ -63,6 +63,9 @@
             <label>视觉风格
               <select id="style"></select>
             </label>
+            <label>招式打法
+              <select id="playbook"></select>
+            </label>
             <label>出图模式
               <select id="mode">
                 <option value="background" selected>正式（固定字体排版 + AI 主视觉，推荐）</option>
@@ -168,7 +171,8 @@
             <button id="analyze-btn" type="button" class="primary">拆传播力</button>
             <pre id="analyze-result" class="research-result"></pre>
             <div class="distill-row hidden" id="distill-row">
-              <button id="distill-btn" type="button" class="mini primary">⬇ 提炼招式，沉淀进招式库</button>
+              <button id="distill-btn" type="button" class="mini primary">⬇ 提炼招式，沉淀进</button>
+              <select id="distill-target" class="distill-target"></select>
               <span id="distill-msg" class="distill-msg"></span>
             </div>
             <div class="teardown-history">
@@ -178,7 +182,17 @@
           </div>
 
           <div id="tab-playbook" class="research-pane hidden">
-            <p class="research-note">分类招式库（<code>playbook.json</code>）。<strong>只有勾选启用的类别</strong>会注入到每次生成；可删招式、加招式、加分类。改完点保存，下次生成即生效。</p>
+            <p class="research-note">多套<strong>打法</strong>，每套是一种爆款风格。创作页选用哪套，就注入哪套的招式（按类别可开关）。在这里新建/编辑/删除打法。</p>
+            <div class="pb-bar">
+              <select id="pb-select"></select>
+              <button id="pb-new" type="button" class="mini subtle">+ 新建打法</button>
+              <button id="pb-setactive" type="button" class="mini subtle">设为默认</button>
+              <button id="pb-del" type="button" class="mini subtle">删除此打法</button>
+            </div>
+            <div class="pb-meta">
+              <input id="pb-name" type="text" placeholder="打法名称" />
+              <input id="pb-desc" type="text" placeholder="一句话：这套打法适合什么爆款" />
+            </div>
             <div id="playbook-cats" class="playbook-cats"></div>
             <div class="playbook-actions">
               <button id="playbook-add-cat" type="button" class="mini subtle">+ 新增分类</button>

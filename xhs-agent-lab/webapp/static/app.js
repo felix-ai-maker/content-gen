@@ -761,6 +761,7 @@ async function generate() {
     style: $("style").value,
     mode: $("mode").value,
     extra_brief: $("extra").value,
+    playbook: $("playbook").value,
     push: $("push").checked,
   };
   try {
@@ -949,21 +950,13 @@ async function distillTactics() {
     const data = await fetchJson("/api/playbook/distill", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: lastTeardownId }),
+      body: JSON.stringify({ id: lastTeardownId, playbook_id: $("distill-target").value }),
     });
     const added = data.added || [];
-    if (data.categories) {
-      playbookCats = data.categories.map((c) => ({
-        key: c.key || "",
-        name: c.name || "未命名",
-        enabled: c.enabled !== false,
-        tactics: Array.isArray(c.tactics) ? c.tactics.slice() : [],
-      }));
-      renderPlaybook();
-    }
+    loadPlaybook().catch(() => {});
     const cats = [...new Set(added.map((a) => a.category))].join("、");
     $("distill-msg").textContent = added.length
-      ? `已入库 ${added.length} 条招式（${cats}），去「招式库」看，下次生成即生效。`
+      ? `已沉淀 ${added.length} 条招式到「${data.playbook}」（${cats}），去「招式库」看，下次用这套打法生成即生效。`
       : "没有新招式（都已在库里）。";
   } catch (err) {
     $("distill-msg").textContent = "提炼失败：" + err.message;
@@ -1000,15 +993,43 @@ async function loadTeardowns() {
   }
 }
 
-let playbookCats = [];
+let playbookDoc = { active: "", playbooks: [] };
+let curPb = 0;
+const PB_DEFAULT_CATS = [
+  ["base", "基础准则"], ["title", "标题钩子"], ["emotion", "情绪驱动"], ["save", "收藏动机"],
+  ["interact", "互动评论"], ["social", "社交货币 / 转发"], ["structure", "结构节奏"], ["topic", "选题时机"],
+];
+
+function curCats() {
+  const pb = playbookDoc.playbooks[curPb];
+  return pb ? pb.categories : [];
+}
+
+function applyPbMeta() {
+  const pb = playbookDoc.playbooks[curPb];
+  if (!pb) return;
+  pb.name = $("pb-name").value;
+  pb.desc = $("pb-desc").value;
+}
+
+function renderPbBar() {
+  $("pb-select").innerHTML = playbookDoc.playbooks
+    .map((p, i) => `<option value="${i}">${escapeHTML(p.name)}${p.id === playbookDoc.active ? " ★默认" : ""}</option>`)
+    .join("");
+  $("pb-select").value = String(curPb);
+  const pb = playbookDoc.playbooks[curPb];
+  $("pb-name").value = pb ? pb.name : "";
+  $("pb-desc").value = pb ? pb.desc || "" : "";
+}
 
 function renderPlaybook() {
   const box = $("playbook-cats");
-  if (!playbookCats.length) {
-    box.innerHTML = `<div class="pb-empty">招式库为空。</div>`;
+  const cats = curCats();
+  if (!cats.length) {
+    box.innerHTML = `<div class="pb-empty">这套打法还没有分类，点「+ 新增分类」。</div>`;
     return;
   }
-  box.innerHTML = playbookCats
+  box.innerHTML = cats
     .map(
       (cat, ci) => `
     <div class="pb-cat ${cat.enabled ? "" : "off"}">
@@ -1031,14 +1052,14 @@ function renderPlaybook() {
     .join("");
 
   box.querySelectorAll(".pb-enable").forEach((el) => {
-    el.onchange = () => (playbookCats[+el.dataset.ci].enabled = el.checked);
+    el.onchange = () => (cats[+el.dataset.ci].enabled = el.checked);
   });
   box.querySelectorAll(".pb-name").forEach((el) => {
-    el.oninput = () => (playbookCats[+el.dataset.ci].name = el.value);
+    el.oninput = () => (cats[+el.dataset.ci].name = el.value);
   });
   box.querySelectorAll(".pb-del").forEach((el) => {
     el.onclick = () => {
-      playbookCats[+el.dataset.ci].tactics.splice(+el.dataset.ti, 1);
+      cats[+el.dataset.ci].tactics.splice(+el.dataset.ti, 1);
       renderPlaybook();
     };
   });
@@ -1047,50 +1068,125 @@ function renderPlaybook() {
       if (e.key !== "Enter") return;
       const v = el.value.trim();
       if (!v) return;
-      playbookCats[+el.dataset.ci].tactics.push(v);
+      cats[+el.dataset.ci].tactics.push(v);
       renderPlaybook();
     };
   });
 }
 
+function _mapPlaybooks(data) {
+  return {
+    active: data.active || "",
+    playbooks: (data.playbooks || []).map((p) => ({
+      id: p.id || "",
+      name: p.name || "未命名打法",
+      desc: p.desc || "",
+      categories: (p.categories || []).map((c) => ({
+        key: c.key || "",
+        name: c.name || "未命名",
+        enabled: c.enabled !== false,
+        tactics: Array.isArray(c.tactics) ? c.tactics.slice() : [],
+      })),
+    })),
+  };
+}
+
 async function loadPlaybook() {
   try {
-    const data = await fetchJson("/api/playbook");
-    playbookCats = (data.categories || []).map((c) => ({
-      key: c.key || "",
-      name: c.name || "未命名",
-      enabled: c.enabled !== false,
-      tactics: Array.isArray(c.tactics) ? c.tactics.slice() : [],
-    }));
+    playbookDoc = _mapPlaybooks(await fetchJson("/api/playbook"));
+    if (!playbookDoc.playbooks.length) playbookDoc.playbooks = [{ id: "default", name: "默认打法", desc: "", categories: [] }];
+    if (curPb >= playbookDoc.playbooks.length) curPb = 0;
     $("playbook-msg").textContent = "";
+    renderPbBar();
     renderPlaybook();
   } catch (err) {
     $("playbook-msg").textContent = "加载失败：" + err.message;
   }
 }
 
+function switchPlaybook() {
+  applyPbMeta();
+  curPb = +$("pb-select").value || 0;
+  renderPbBar();
+  renderPlaybook();
+}
+
+function newPlaybook() {
+  applyPbMeta();
+  playbookDoc.playbooks.push({
+    id: "pb_" + Date.now().toString(36),
+    name: "新打法",
+    desc: "",
+    categories: PB_DEFAULT_CATS.map(([key, name]) => ({ key, name, enabled: true, tactics: [] })),
+  });
+  curPb = playbookDoc.playbooks.length - 1;
+  renderPbBar();
+  renderPlaybook();
+  $("pb-name").focus();
+}
+
+function deletePlaybook() {
+  if (playbookDoc.playbooks.length <= 1) {
+    $("playbook-msg").textContent = "至少保留一套打法。";
+    return;
+  }
+  const removed = playbookDoc.playbooks.splice(curPb, 1)[0];
+  if (removed && removed.id === playbookDoc.active) playbookDoc.active = playbookDoc.playbooks[0].id;
+  curPb = 0;
+  renderPbBar();
+  renderPlaybook();
+  $("playbook-msg").textContent = "已删除（记得保存）。";
+}
+
+function setActivePlaybook() {
+  applyPbMeta();
+  const pb = playbookDoc.playbooks[curPb];
+  if (!pb) return;
+  playbookDoc.active = pb.id;
+  renderPbBar();
+  $("playbook-msg").textContent = `「${pb.name}」已设为默认（记得保存）。`;
+}
+
 function addPlaybookCategory() {
-  playbookCats.push({ key: "", name: "新分类", enabled: true, tactics: [] });
+  curCats().push({ key: "", name: "新分类", enabled: true, tactics: [] });
   renderPlaybook();
 }
 
 async function savePlaybook() {
+  applyPbMeta();
   $("playbook-save").disabled = true;
   $("playbook-msg").textContent = "保存中…";
   try {
     const data = await fetchJson("/api/playbook", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ categories: playbookCats }),
+      body: JSON.stringify({ active: playbookDoc.active, playbooks: playbookDoc.playbooks }),
     });
-    playbookCats = data.categories || playbookCats;
+    playbookDoc = _mapPlaybooks(data);
+    if (curPb >= playbookDoc.playbooks.length) curPb = 0;
+    renderPbBar();
     renderPlaybook();
+    loadPlaybookOptions().catch(() => {});
     $("playbook-msg").textContent = "已保存，下次生成即生效。";
   } catch (err) {
     $("playbook-msg").textContent = "保存失败：" + err.message;
   } finally {
     $("playbook-save").disabled = false;
   }
+}
+
+async function loadPlaybookOptions() {
+  const data = await fetchJson("/api/playbooks");
+  const opts = (data.playbooks || [])
+    .map((p) => `<option value="${escapeHTML(p.id)}">${escapeHTML(p.name)}</option>`)
+    .join("");
+  ["playbook", "distill-target"].forEach((id) => {
+    const sel = $(id);
+    if (sel) {
+      sel.innerHTML = opts;
+      sel.value = data.active || "";
+    }
+  });
 }
 
 async function loadXhsStatus() {
@@ -1172,6 +1268,12 @@ $("distill-btn").onclick = distillTactics;
 $("th-refresh").onclick = () => loadTeardowns().catch(() => {});
 $("playbook-save").onclick = savePlaybook;
 $("playbook-add-cat").onclick = addPlaybookCategory;
+$("pb-select").onchange = switchPlaybook;
+$("pb-new").onclick = newPlaybook;
+$("pb-del").onclick = deletePlaybook;
+$("pb-setactive").onclick = setActivePlaybook;
+$("pb-name").oninput = applyPbMeta;
+$("pb-desc").oninput = applyPbMeta;
 $("xhs-search-btn").onclick = xhsSearch;
 $("xhs-login-btn").onclick = xhsLoginQr;
 
@@ -1179,6 +1281,7 @@ $("gen").onclick = generate;
 loadPresets().catch((err) => {
   $("status").textContent = "加载视觉风格失败：" + err.message;
 });
+loadPlaybookOptions().catch(() => {});
 loadHistory().catch((err) => {
   $("status").textContent = "加载历史发布包失败：" + err.message;
 });
