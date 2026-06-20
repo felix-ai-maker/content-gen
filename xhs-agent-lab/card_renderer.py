@@ -78,13 +78,24 @@ class CardRenderer:
         self._last_ai_request_at = 0.0
         self.generation_records: list[dict] = []
 
-    def render_all(self, cards: list[dict], output_dir: Path, topic: str) -> list[Path]:
+    def render_all(self, cards: list[dict], output_dir: Path, topic: str, progress=None, log=None) -> list[Path]:
         paths: list[Path] = []
+        total = len(cards)
         for index, card in enumerate(cards, start=1):
-            image = self.render_card(card=card, index=index, total=len(cards), topic=topic)
+            message = f"正在生成第 {index}/{total} 张卡片…"
+            if log:
+                log(message)
+            if progress:
+                progress(index - 1, total, message)
+            image = self.render_card(card=card, index=index, total=total, topic=topic)
             path = output_dir / f"card_{index:02d}.png"
             image.save(path, "PNG", optimize=True)
             paths.append(path)
+            message = f"第 {index}/{total} 张已生成：{path.name}"
+            if log:
+                log(message)
+            if progress:
+                progress(index, total, message)
         self._write_generation_meta(output_dir)
         return paths
 
@@ -94,6 +105,7 @@ class CardRenderer:
         self._active_visual_style = card.get("visual_style", {}) if isinstance(card.get("visual_style"), dict) else {}
         try:
             image = self._make_background(card, index, topic)
+            image = self._apply_layout_surface(image, cover=kind == "cover" or index == 1)
             draw = ImageDraw.Draw(image)
 
             self._draw_system_marks(draw, index, total)
@@ -216,6 +228,48 @@ class CardRenderer:
             alpha = int(178 * (1 - step / 150) ** 2.0)
             y = 168 + step
             draw.line((0, y, self.width, y), fill=bg + (alpha,), width=1)
+        return Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB")
+
+    def _apply_layout_surface(self, image: Image.Image, cover: bool) -> Image.Image:
+        """Blend a designed reading surface into the AI visual layer.
+
+        The typography remains deterministic, while the paper surface, hairlines,
+        and accent marks make the text feel intentionally integrated.
+        """
+        overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay, "RGBA")
+        paper = self._color("background")
+        hairline = self._color("hairline")
+        accent = self._color("accent")
+        ghost = self._color("ghost")
+
+        if cover:
+            panel = (48, 62, self.width - 48, 720)
+            fade_start = 650
+            fade_height = 190
+        else:
+            panel = (48, 62, self.width - 48, 570)
+            fade_start = 510
+            fade_height = 160
+
+        draw.rounded_rectangle(panel, radius=26, fill=paper + (232,), outline=hairline + (130,), width=2)
+        draw.rectangle((panel[0] + 1, panel[1] + 1, panel[0] + 15, panel[3] - 1), fill=accent + (34,))
+        draw.line((panel[0] + 32, panel[1] + 72, panel[2] - 32, panel[1] + 72), fill=hairline + (95,), width=2)
+        draw.line((panel[0] + 32, panel[3] - 42, panel[2] - 32, panel[3] - 42), fill=ghost + (80,), width=2)
+
+        for step in range(fade_height):
+            t = 1 - step / max(1, fade_height)
+            alpha = int(188 * (t**1.7))
+            y = fade_start + step
+            if y < self.height:
+                draw.line((48, y, self.width - 48, y), fill=paper + (alpha,), width=1)
+
+        # A subtle bottom paper strip anchors the footer and prevents the card
+        # from feeling like text was pasted onto an unrelated illustration.
+        footer_top = self.height - 126
+        draw.rectangle((48, footer_top, self.width - 48, self.height - 46), fill=paper + (218,))
+        draw.line((72, footer_top, self.width - 72, footer_top), fill=hairline + (120,), width=2)
+
         return Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB")
 
     def _draw_editorial_design_layer(self, draw: ImageDraw.ImageDraw, card: dict, index: int) -> None:
@@ -759,23 +813,31 @@ class CardRenderer:
         directed_illustration = style.get("illustration_style", "")
         accent_color = style.get("accent_color", self.colors.get("accent", "#1F6FFF"))
         support_color = style.get("support_color", self.colors.get("ghost", "#E8EBF0"))
+        palette = style.get("palette", {}) if isinstance(style.get("palette"), dict) else {}
+        paper_color = palette.get("paper", self.colors.get("background", "#F7F7F5"))
+        ink_color = palette.get("ink", self.colors.get("text", "#111111"))
+        preset_accent = palette.get("accent", accent_color)
+        preset_support = palette.get("support", support_color)
         is_cover = card.get("type") == "cover" or index == 1
         thumbnail_goal = (
             "This is the cover, so the visual must read instantly as a premium topic-specific knowledge-card object at phone thumbnail size."
             if is_cover
             else "This is a content card, so the visual should explain the card idea clearly without stealing the text area."
         )
-        text_field = "top 42%" if is_cover else "top 34%"
+        text_field = "top 48% inside a quiet editorial paper panel" if is_cover else "top 38% inside a quiet editorial paper panel"
         visual_field = "middle and lower 58%" if is_cover else "middle 48% to lower 38%"
         return textwrap.dedent(
             f"""
             You are the art director for a premium Chinese vertical social-media editorial series.
             Create a complete visual background layer for a 1080x1440 Xiaohongshu card. Local code will add
-            the Chinese typography later, so your image must carry the visual design value without containing text.
+            the Chinese typography and final paper panels later, so your image must carry the visual design value
+            without containing text.
 
             Editorial theme: {topic}
             Card role: {card.get("kicker", f"card {index:02d}")}
             Card title meaning: {card.get("title", "")}
+            Card subtitle: {card.get("subtitle", "")}
+            Card concrete copy anchors: {self._visual_copy_anchor(card)}
             Card emotional metaphor: {metaphor}
             Auto-generated style theme: {directed_theme}
             Auto-generated card layout: {directed_layout}
@@ -783,7 +845,7 @@ class CardRenderer:
             Auto-generated style direction:
             {directed_prompt}
 
-            Primary visual brief:
+            Primary visual brief, grounded in the card copy:
             {visual_brief}
 
             Candidate variation:
@@ -791,8 +853,10 @@ class CardRenderer:
 
             Composition contract:
             - {thumbnail_goal}
-            - {text_field}: quiet premium off-white reading field for Chinese typography, almost empty, no marks that resemble letters.
-            - {visual_field}: the main designed visual metaphor, rich, dimensional, and memorable.
+            - {text_field}: reserve a calm, low-detail reading area for deterministic Chinese typography. It should feel like part of
+              the editorial layout, not an accidental blank hole. Use subtle paper grain, quiet geometry, and soft edge transitions.
+            - {visual_field}: the main designed visual metaphor, rich, dimensional, and memorable, connected to the text panel by
+              accent lines, framing, shadow, paper layers, or shared geometry.
             - The visual must have one memorable focal object or spatial structure, not just abstract wallpaper.
             - Use a clear foreground object, one midground system relation, and a restrained background field.
             - Leave enough quiet space for Chinese type, but make the overall image feel designed and publishable.
@@ -802,12 +866,16 @@ class CardRenderer:
             - Art direction: premium Xiaohongshu knowledge-card explainer, topic-specific metaphor, editorial information design, human-made publication layout.
             - Visual language: {directed_language}
             - Illustration mode: {directed_illustration}
-            - Palette: off-white, black, graphite grey, mist grey, accent {accent_color}, soft support tint {support_color}.
+            - Palette contract: paper {paper_color}, ink {ink_color}, accent {preset_accent}, support tint {preset_support}.
+              The background, objects, shadows, and empty paper fields must visibly belong to this palette.
             - Principles: {principles}
             - Materials and texture: {materials}
             - Composition: {composition}
             - All visible surfaces must be blank geometric material: no letters, no label marks, no readable numbers.
-            - Visual vocabulary must follow the auto-generated style direction above: use explanatory metaphor objects,
+            - The image must be grounded in the card title, subtitle, bullets, and note. Prefer concrete objects, actions,
+              process structures, boundaries, records, tools, routes, or visible relationships mentioned or implied by the copy.
+            - Visual vocabulary must follow the auto-generated style direction above, but text relevance wins over abstract metaphor:
+              use explanatory metaphor objects,
               simple diagram structure, topic-specific props, blank cards, panels, levers, routes, gates, scales,
               folders, checks, calibration marks, or app-like modules only when they fit the copy.
             - Design quality target: attractive enough for a user to stop scrolling on Xiaohongshu; restrained but not bland.
@@ -824,7 +892,8 @@ class CardRenderer:
             - no UI words, no logos, no app icons, no charts, no candlesticks, no bull/bear, no coins, no red/green trading cues
             - no poster title, no slogan, no fake labels, no interface screenshot, no dashboard
             - no generic blue-purple cyberpunk, no neon city, no server-rack cliche, no finance influencer style
-            - do not ignore the auto-generated metaphor; do not default to generic glass technology scenery
+            - do not drift into abstract art that only vaguely matches the mood; the visual should be guessable from the copy
+            - do not default to generic glass technology scenery
 
             Avoid: {negative}
             """
@@ -1472,6 +1541,18 @@ class CardRenderer:
             bullets = [part.strip() for part in bullets.split("\n") if part.strip()]
         return [str(item).strip() for item in bullets if str(item).strip()]
 
+    def _visual_copy_anchor(self, card: dict) -> str:
+        parts: list[str] = []
+        for key in ("title", "subtitle", "highlight", "note"):
+            value = str(card.get(key, "") or "").strip()
+            if value:
+                parts.append(value)
+        parts.extend(self._normalize_bullets(card)[:3])
+        anchor = " / ".join(parts)
+        if len(anchor) > 220:
+            return anchor[:219].rstrip("，。；、 ") + "."
+        return anchor
+
     @staticmethod
     def _resize_cover(image: Image.Image, width: int, height: int) -> Image.Image:
         ratio = max(width / image.width, height / image.height)
@@ -1491,6 +1572,24 @@ class CardRenderer:
             "ghost": "#E6E9EF",
         }
         active_style = getattr(self, "_active_visual_style", {}) or {}
+        palette = active_style.get("palette") if isinstance(active_style.get("palette"), dict) else {}
+        if palette:
+            paper = hex_to_rgb(str(palette.get("paper") or defaults["background"]))
+            ink = hex_to_rgb(str(palette.get("ink") or defaults["text"]))
+            accent = hex_to_rgb(str(palette.get("accent") or active_style.get("accent_color") or defaults["accent"]))
+            support = hex_to_rgb(str(palette.get("support") or active_style.get("support_color") or defaults["ghost"]))
+            if name == "background":
+                return paper
+            if name == "text":
+                return ink
+            if name == "accent":
+                return accent
+            if name == "muted":
+                return self._mix(ink, paper, 0.62)
+            if name == "hairline":
+                return self._mix(support, ink, 0.28)
+            if name in {"grid", "ghost"}:
+                return support
         if name == "accent" and active_style.get("accent_color"):
             return hex_to_rgb(str(active_style["accent_color"]))
         if name == "ghost" and active_style.get("support_color"):

@@ -4,21 +4,182 @@ let currentPackage = null;   // result 区当前显示的包（用于推送）
 let activeResult = null;     // 最近一次「生成」完成的结果
 let generating = false;      // 是否有生成任务在跑
 let viewing = "current";     // "current"=看最近生成 / 或某个历史包名
+let editorCards = null;      // 当前编辑器里的 cards_used.json
+let editorOpen = false;
+let activeRegen = null;      // 当前正在编辑提示词的单张卡
+let workbenchOpen = false;   // 高级工作台默认收起，避免压住主流程
+const docEditing = { xhs: false, wechat: false };
+let lastInspiration = null;
+
+const escapeHTML = (value) =>
+  String(value ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[c]);
+
+async function fetchJson(url, options = {}) {
+  const res = await fetch(url, options);
+  let data = null;
+  try {
+    data = await res.json();
+  } catch (_err) {
+    data = {};
+  }
+  if (!res.ok) {
+    throw new Error(data.detail || `请求失败：${res.status}`);
+  }
+  return data;
+}
+
+function resetProgress(message = "等待开始…") {
+  $("progress").classList.add("hidden");
+  $("progress-label").textContent = message;
+  $("progress-percent").textContent = "0%";
+  $("progress-fill").style.width = "0%";
+  $("progress-detail").textContent = "";
+}
+
+function renderProgress(progress) {
+  if (!progress) return;
+  const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+  $("progress").classList.remove("hidden");
+  $("progress-label").textContent = progress.message || "生成中…";
+  $("progress-percent").textContent = `${Math.round(percent)}%`;
+  $("progress-fill").style.width = `${percent}%`;
+  if (Number(progress.total) > 0) {
+    $("progress-detail").textContent = `图片进度：${progress.done || 0}/${progress.total}`;
+  } else {
+    $("progress-detail").textContent = progress.stage ? `阶段：${progress.stage}` : "";
+  }
+}
 
 async function loadPresets() {
-  const presets = await fetch("/api/presets").then((r) => r.json());
+  const presets = await fetchJson("/api/presets");
   $("style").innerHTML = presets
-    .map((p) => `<option value="${p.key}">${p.name}</option>`)
+    .map((p) => `<option value="${escapeHTML(p.key)}">${escapeHTML(p.name)}</option>`)
     .join("");
 }
 
 async function loadHistory() {
-  const pkgs = await fetch("/api/packages").then((r) => r.json());
+  const pkgs = await fetchJson("/api/packages");
   $("history").innerHTML = pkgs
-    .map((p) => `<li data-name="${encodeURIComponent(p.name)}">${p.name}（${p.cards.length} 张）</li>`)
+    .map((p) => `<li data-name="${encodeURIComponent(p.name)}">${escapeHTML(p.name)}（${p.cards.length} 张）</li>`)
     .join("");
   document.querySelectorAll("#history li").forEach((li) => {
     li.onclick = () => showPackage(decodeURIComponent(li.dataset.name));
+  });
+}
+
+function setInspireBusy(busy) {
+  ["inspire-topic", "inspire-copy"].forEach((id) => {
+    $(id).disabled = busy;
+  });
+}
+
+function inspirationSeedMessage(target) {
+  const direction = $("inspire-direction").value.trim();
+  const topic = $("topic").value.trim();
+  const copy = $("copy").value.trim();
+  if (direction || topic || copy) return "";
+  return target === "topic" ? "先输入灵感关键词 / 方向，或一个粗略选题。" : "先输入灵感关键词 / 方向，或一两句原始想法。";
+}
+
+async function inspire(target) {
+  const emptyMessage = inspirationSeedMessage(target);
+  if (emptyMessage) {
+    $("status").textContent = emptyMessage;
+    return;
+  }
+  setInspireBusy(true);
+  $("inspire-panel").classList.remove("hidden");
+  $("inspire-panel").innerHTML = `
+    <div class="inspire-head">
+      <strong>灵感生成中…</strong>
+      <span>会根据灵感方向、当前选题和素材一起判断</span>
+    </div>`;
+  try {
+    const result = await fetchJson("/api/inspire", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        target,
+        direction: $("inspire-direction").value,
+        topic: $("topic").value,
+        copy_text: $("copy").value,
+      }),
+    });
+    lastInspiration = result;
+    renderInspiration(result, target);
+  } catch (err) {
+    $("inspire-panel").innerHTML = `<div class="review-error">${escapeHTML(err.message)}</div>`;
+  } finally {
+    setInspireBusy(false);
+  }
+}
+
+function renderInspiration(data, target) {
+  const topics = Array.isArray(data.topics) ? data.topics : [];
+  const materials = Array.isArray(data.materials) ? data.materials : [];
+  const source = data.source === "ai" ? "AI 生成" : "本地灵感";
+  const showTopics = target !== "copy";
+  const showMaterials = target !== "topic" || !topics.length;
+  const topicCards = showTopics ? topics.map((item, index) => `
+    <div class="inspire-card">
+      <strong>${escapeHTML(item.title || "选题候选")}</strong>
+      <p>${escapeHTML(item.angle || "")}</p>
+      <p>${escapeHTML(item.hook || "")}</p>
+      <div class="inspire-actions">
+        <button type="button" class="mini primary use-topic" data-index="${index}">填入选题</button>
+      </div>
+    </div>`).join("") : "";
+  const materialCards = showMaterials ? materials.map((item, index) => {
+    const bullets = Array.isArray(item.bullets) ? item.bullets.filter(Boolean).join(" / ") : "";
+    return `<div class="inspire-card">
+      <strong>${escapeHTML(item.title || "素材草稿")}</strong>
+      <p>${escapeHTML(item.draft || "")}</p>
+      ${bullets ? `<p>${escapeHTML(bullets)}</p>` : ""}
+      <div class="inspire-actions">
+        <button type="button" class="mini primary use-copy" data-index="${index}">填入素材</button>
+        <button type="button" class="mini use-copy-append" data-index="${index}">追加到素材</button>
+      </div>
+    </div>`;
+  }).join("") : "";
+  $("inspire-panel").innerHTML = `
+    <div class="inspire-head">
+      <strong>灵感助手</strong>
+      <span>${source}</span>
+      <button id="inspire-close" type="button" class="mini">收起</button>
+    </div>
+    <div class="inspire-grid">
+      ${topicCards}
+      ${materialCards}
+    </div>`;
+  $("inspire-close").onclick = () => $("inspire-panel").classList.add("hidden");
+  document.querySelectorAll(".use-topic").forEach((button) => {
+    button.onclick = () => {
+      const item = (lastInspiration?.topics || [])[Number(button.dataset.index)];
+      if (item?.title) $("topic").value = item.title;
+    };
+  });
+  document.querySelectorAll(".use-copy").forEach((button) => {
+    button.onclick = () => {
+      const item = (lastInspiration?.materials || [])[Number(button.dataset.index)];
+      if (!item) return;
+      const bullets = Array.isArray(item.bullets) ? item.bullets.map((line) => `- ${line}`).join("\n") : "";
+      $("copy").value = [item.draft || "", bullets].filter(Boolean).join("\n\n");
+    };
+  });
+  document.querySelectorAll(".use-copy-append").forEach((button) => {
+    button.onclick = () => {
+      const item = (lastInspiration?.materials || [])[Number(button.dataset.index)];
+      if (!item) return;
+      const bullets = Array.isArray(item.bullets) ? item.bullets.map((line) => `- ${line}`).join("\n") : "";
+      const next = [item.draft || "", bullets].filter(Boolean).join("\n\n");
+      $("copy").value = [$("copy").value.trim(), next].filter(Boolean).join("\n\n");
+    };
   });
 }
 
@@ -32,80 +193,373 @@ function renderCards(name, cards) {
     .map((c) => {
       const idx = cardIndexFromName(c);
       const url = `/api/packages/${encodeURIComponent(name)}/cards/${encodeURIComponent(c)}`;
-      return `<div class="card-item">
-        <img id="img-${idx}" src="${url}" title="${c}" onclick="window.open('${url}')" />
-        <button class="regen-toggle" data-idx="${idx}">✏️ 改这张</button>
-        <div class="regen-box hidden" id="regenbox-${idx}">
-          <textarea id="regen-${idx}" rows="4" placeholder="点开后显示这张图的画面提示词，在此基础上改，再点重生成…"></textarea>
-          <button class="regen-go" data-idx="${idx}">重生成这张</button>
-          <span class="regen-status" id="regenst-${idx}"></span>
-        </div>
+      const imgUrl = `${url}?v=${Date.now()}`;
+      const selected = activeRegen && activeRegen.name === name && activeRegen.idx === idx;
+      return `<div class="card-item ${selected ? "regen-selected" : ""}">
+        <img id="img-${idx}" src="${escapeHTML(imgUrl)}" title="${escapeHTML(c)}" onclick="window.open('${escapeHTML(url)}')" />
+        <button class="regen-toggle ${selected ? "selected" : ""}" data-idx="${idx}" data-file="${escapeHTML(c)}">${selected ? "正在改这张" : "✏️ 改这张"}</button>
       </div>`;
     })
     .join("");
   document.querySelectorAll(".regen-toggle").forEach((b) => {
-    b.onclick = async () => {
-      const idx = b.dataset.idx;
-      const box = $(`regenbox-${idx}`);
-      box.classList.toggle("hidden");
-      const ta = $(`regen-${idx}`);
-      // 展开且还没填过时，预填这张图当前的画面提示词
-      if (!box.classList.contains("hidden") && !ta.value) {
-        ta.value = "（加载提示词中…）";
-        const p = await fetch(`/api/packages/${encodeURIComponent(name)}/cards/${idx}/prompt`).then((r) => r.json());
-        ta.value = p.prompt || "";
-      }
+    b.onclick = () => {
+      openRegenPanel(name, parseInt(b.dataset.idx, 10), b.dataset.file).catch((err) => {
+        $("status").textContent = "打开提示词编辑器失败：" + err.message;
+      });
     };
   });
-  document.querySelectorAll(".regen-go").forEach((b) => {
-    b.onclick = () => regenOne(name, parseInt(b.dataset.idx, 10), b);
+}
+
+function setWorkbenchOpen(open) {
+  workbenchOpen = open;
+  $("workbench").classList.toggle("collapsed", !open);
+  $("workbench-body").classList.toggle("hidden", !open);
+  $("workbench-toggle").textContent = open ? "收起高级" : "展开高级";
+  $("workbench-toggle").setAttribute("aria-expanded", String(open));
+}
+
+function updateWorkbenchSummary(review) {
+  const fallback = "默认收起，展开后可编辑文案和重渲染。";
+  if (!review) {
+    $("workbench-summary").textContent = fallback;
+    return;
+  }
+  const hasScore = review.score !== null && review.score !== undefined && Number.isFinite(Number(review.score));
+  const score = hasScore ? `${review.score} 分` : "待检查";
+  $("workbench-summary").textContent = `${score} · ${review.summary || "发布检查已更新"}`;
+}
+
+function renderReview(review) {
+  updateWorkbenchSummary(review);
+  if (!review || !review.items) {
+    $("review").innerHTML = "";
+    return;
+  }
+  const levelLabel = { ok: "通过", warn: "可优化", fix: "先处理" };
+  $("review").innerHTML = `
+    <div class="review-summary">
+      <span class="review-score">${review.score}</span>
+      <span>${escapeHTML(review.summary || "")}</span>
+    </div>
+    <div class="review-grid">
+      ${review.items.map((item) => `
+        <div class="review-item ${escapeHTML(item.level)}">
+          <span class="review-level">${escapeHTML(levelLabel[item.level] || item.level)}</span>
+          <strong>${escapeHTML(item.title)}</strong>
+          <p>${escapeHTML(item.detail)}</p>
+        </div>
+      `).join("")}
+    </div>`;
+}
+
+async function loadReview(name) {
+  try {
+    renderReview(await fetchJson(`/api/packages/${encodeURIComponent(name)}/review`));
+  } catch (err) {
+    updateWorkbenchSummary({ score: null, summary: "发布检查读取失败" });
+    $("review").innerHTML = `<div class="review-error">${escapeHTML(err.message)}</div>`;
+  }
+}
+
+function normalizeBullets(value) {
+  return String(value || "")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function renderCardEditor(cards) {
+  editorCards = cards.map((card) => ({ ...card }));
+  $("card-editor").innerHTML = editorCards.map((card, index) => {
+    const bullets = Array.isArray(card.bullets) ? card.bullets.join("\n") : (card.bullets || "");
+    return `<div class="edit-card" data-index="${index}">
+      <div class="edit-card-head">
+        <strong>卡 ${String(index + 1).padStart(2, "0")}</strong>
+        <span>${escapeHTML(card.type || "content")}</span>
+      </div>
+      <label>小标
+        <input data-field="kicker" type="text" value="${escapeHTML(card.kicker || "")}" />
+      </label>
+      <label>标题
+        <input data-field="title" type="text" value="${escapeHTML(card.title || "")}" />
+      </label>
+      <label>副标题
+        <textarea data-field="subtitle" rows="2">${escapeHTML(card.subtitle || "")}</textarea>
+      </label>
+      <label>要点（每行一条）
+        <textarea data-field="bullets" rows="4">${escapeHTML(bullets)}</textarea>
+      </label>
+      <label>底部收束句
+        <textarea data-field="note" rows="2">${escapeHTML(card.note || "")}</textarea>
+      </label>
+    </div>`;
+  }).join("");
+  $("save-cards").disabled = false;
+}
+
+function collectEditedCards() {
+  return editorCards.map((card, index) => {
+    const root = document.querySelector(`.edit-card[data-index="${index}"]`);
+    const next = { ...card };
+    next.kicker = root.querySelector('[data-field="kicker"]').value.trim();
+    next.title = root.querySelector('[data-field="title"]').value.trim();
+    next.subtitle = root.querySelector('[data-field="subtitle"]').value.trim();
+    const bullets = normalizeBullets(root.querySelector('[data-field="bullets"]').value);
+    if (bullets.length || "bullets" in next) next.bullets = bullets;
+    const note = root.querySelector('[data-field="note"]').value.trim();
+    if (note || "note" in next) next.note = note;
+    return next;
   });
 }
 
-async function regenOne(name, idx, btn) {
-  btn.disabled = true;
-  const st = $(`regenst-${idx}`);
-  st.textContent = "提交中…";
-  const edited = $(`regen-${idx}`).value;
-  const res = await fetch(`/api/packages/${encodeURIComponent(name)}/cards/${idx}/regenerate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ metaphor: edited }),
-  }).then((r) => r.json());
-  if (!res.task_id) {
-    st.textContent = "提交失败";
-    btn.disabled = false;
-    return;
+async function toggleCardEditor() {
+  if (!currentPackage) return;
+  editorOpen = !editorOpen;
+  $("card-editor").classList.toggle("hidden", !editorOpen);
+  $("edit-cards").textContent = editorOpen ? "收起卡片文案" : "编辑卡片文案";
+  if (editorOpen && !editorCards) {
+    $("card-editor").innerHTML = "<div class=\"editor-loading\">加载卡片文案中…</div>";
+    const data = await fetchJson(`/api/packages/${encodeURIComponent(currentPackage)}/cards-data`);
+    renderCardEditor(data.cards || []);
   }
-  pollRegen(res.task_id, name, idx, btn);
 }
 
-async function pollRegen(taskId, name, idx, btn) {
-  const task = await fetch(`/api/tasks/${taskId}`).then((r) => r.json());
-  const st = $(`regenst-${idx}`);
+async function saveCards(options = {}) {
+  if (!currentPackage || !editorCards) return null;
+  const cards = collectEditedCards();
+  $("save-cards").disabled = true;
+  if (!options.quiet) $("status").textContent = "正在保存卡片文案…";
+  try {
+    const result = await fetchJson(`/api/packages/${encodeURIComponent(currentPackage)}/cards-data`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cards }),
+    });
+    editorCards = cards;
+    $("xhs").textContent = result.xhs_md || "";
+    $("wechat").textContent = result.wechat_md || "";
+    resetDocEditors();
+    renderReview(result.review);
+    renderInputs(result.inputs);
+    if (activeResult && activeResult.package_name === currentPackage) {
+      activeResult = {
+        ...activeResult,
+        xhs_md: result.xhs_md || "",
+        wechat_md: result.wechat_md || "",
+        quality: result.quality || activeResult.quality,
+        review: result.review,
+        inputs: result.inputs,
+      };
+    }
+    if (!options.quiet) $("status").textContent = "卡片文案已保存，正文和发布检查已更新。";
+    return result;
+  } catch (err) {
+    $("status").textContent = "保存失败：" + err.message;
+    throw err;
+  } finally {
+    $("save-cards").disabled = false;
+  }
+}
+
+function setWorkbenchBusy(busy) {
+  ["edit-cards", "rerender-local", "rerender-direct"].forEach((id) => {
+    $(id).disabled = busy;
+  });
+  $("save-cards").disabled = busy || !editorCards;
+}
+
+async function rerenderPackage(mode) {
+  if (!currentPackage) return;
+  try {
+    if (editorOpen && editorCards) await saveCards({ quiet: true });
+    setWorkbenchBusy(true);
+    $("logs").textContent = "";
+    const modeLabel = {
+      background: "正式固定排版出图",
+      local: "本地草稿重渲染",
+      direct: "实验整卡直出",
+    }[mode] || "重渲染";
+    $("status").textContent = `已提交${modeLabel}任务…`;
+    resetProgress("已提交，等待重渲染…");
+    renderProgress({ percent: 1, message: "已提交，等待重渲染…", done: 0, total: 0 });
+    const res = await fetchJson(`/api/packages/${encodeURIComponent(currentPackage)}/rerender`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode,
+        extra_brief: $("extra").value,
+        refresh_style: false,
+        push: $("push").checked,
+      }),
+    });
+    pollRerender(res.task_id);
+  } catch (err) {
+    $("status").textContent = "提交失败：" + err.message;
+    setWorkbenchBusy(false);
+  }
+}
+
+async function pollRerender(taskId) {
+  let task;
+  try {
+    task = await fetchJson(`/api/tasks/${taskId}`);
+  } catch (err) {
+    $("status").textContent = "轮询失败：" + err.message;
+    setWorkbenchBusy(false);
+    return;
+  }
+  $("logs").textContent = (task.logs || []).join("\n");
+  renderProgress(task.progress);
   if (task.status === "done") {
-    const fname = task.result.card;
-    $(`img-${idx}`).src = `/api/packages/${encodeURIComponent(name)}/cards/${encodeURIComponent(fname)}?t=${Date.now()}`;
-    st.textContent = "✅ 已更新";
-    btn.disabled = false;
+    const r = task.result;
+    activeResult = r;
+    viewing = "current";
+    renderInto(r.package_name, r.cards, r.xhs_md, r.wechat_md);
+    renderInputs(r.inputs);
+    applyInputsToForm(r.inputs);
+    $("status").textContent = `✅ 已更新：${r.package_name}（${r.mode}）AI味 ${r.quality.score}/100`;
+    setWorkbenchBusy(false);
+    loadHistory();
     return;
   }
   if (task.status === "error") {
-    st.textContent = "❌ " + task.error;
-    btn.disabled = false;
+    $("status").textContent = `❌ 出错：${task.error}`;
+    setWorkbenchBusy(false);
     return;
   }
-  st.textContent = (task.logs || []).slice(-1)[0] || "生成中…";
+  setTimeout(() => pollRerender(taskId), 1500);
+}
+
+function closeRegenPanel() {
+  activeRegen = null;
+  $("regen-panel").classList.add("hidden");
+  $("regen-panel").innerHTML = "";
+  document.querySelectorAll(".card-item.regen-selected").forEach((item) => item.classList.remove("regen-selected"));
+  document.querySelectorAll(".regen-toggle.selected").forEach((button) => {
+    button.classList.remove("selected");
+    button.textContent = "✏️ 改这张";
+  });
+}
+
+function setActiveRegenButton(idx) {
+  document.querySelectorAll(".card-item.regen-selected").forEach((item) => item.classList.remove("regen-selected"));
+  document.querySelectorAll(".regen-toggle").forEach((button) => {
+    const selected = parseInt(button.dataset.idx, 10) === idx;
+    button.classList.toggle("selected", selected);
+    button.textContent = selected ? "正在改这张" : "✏️ 改这张";
+    if (selected) button.closest(".card-item")?.classList.add("regen-selected");
+  });
+}
+
+async function openRegenPanel(name, idx, file) {
+  if (!Number.isFinite(idx)) {
+    throw new Error("无法识别卡片序号");
+  }
+  activeRegen = { name, idx, file };
+  setActiveRegenButton(idx);
+  $("regen-panel").classList.remove("hidden");
+  $("regen-panel").innerHTML = `
+    <div class="regen-panel-head">
+      <div>
+        <strong>修改第 ${String(idx).padStart(2, "0")} 张图片提示词</strong>
+        <span>${escapeHTML(file || `card_${String(idx).padStart(2, "0")}.png`)}</span>
+      </div>
+      <button id="regen-close" class="mini">收起</button>
+    </div>
+    <textarea id="regen-prompt" class="regen-prompt" rows="10" placeholder="在这里改画面提示词。建议写清主视觉、构图、材质、光线和不要出现的元素。">加载提示词中…</textarea>
+    <div class="regen-panel-foot">
+      <span id="regen-status" class="regen-status">读取当前提示词…</span>
+      <button id="regen-submit" class="regen-go">重生成这张</button>
+    </div>
+  `;
+  $("regen-close").onclick = closeRegenPanel;
+  $("regen-submit").onclick = () => regenOne(name, idx);
+  $("regen-panel").scrollIntoView({ block: "nearest", behavior: "smooth" });
+
+  const ta = $("regen-prompt");
+  try {
+    const p = await fetchJson(`/api/packages/${encodeURIComponent(name)}/cards/${idx}/prompt`);
+    ta.value = p.prompt || "";
+    $("regen-status").textContent = "可以在这里直接改提示词。";
+  } catch (err) {
+    ta.value = "";
+    $("regen-status").textContent = "提示词加载失败：" + err.message;
+  }
+}
+
+async function regenOne(name, idx) {
+  const btn = $("regen-submit");
+  const st = $("regen-status");
+  const ta = $("regen-prompt");
+  if (!ta) return;
+  btn.disabled = true;
+  st.textContent = "提交中…";
+  resetProgress("已提交，等待重生成单张图片…");
+  renderProgress({ percent: 1, message: "已提交，等待重生成单张图片…", done: 0, total: 1 });
+  const edited = ta.value;
+  try {
+    const res = await fetchJson(`/api/packages/${encodeURIComponent(name)}/cards/${idx}/regenerate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ metaphor: edited }),
+    });
+    if (!res.task_id) {
+      st.textContent = "提交失败";
+      btn.disabled = false;
+      return;
+    }
+    pollRegen(res.task_id, name, idx, btn);
+  } catch (err) {
+    st.textContent = "提交失败：" + err.message;
+    btn.disabled = false;
+  }
+}
+
+async function pollRegen(taskId, name, idx, btn) {
+  const st = $("regen-status");
+  let task;
+  try {
+    task = await fetchJson(`/api/tasks/${taskId}`);
+  } catch (err) {
+    if (st) st.textContent = "轮询失败：" + err.message;
+    if (btn) btn.disabled = false;
+    return;
+  }
+  renderProgress(task.progress);
+  if (task.status === "done") {
+    const fname = task.result.card;
+    $(`img-${idx}`).src = `/api/packages/${encodeURIComponent(name)}/cards/${encodeURIComponent(fname)}?t=${Date.now()}`;
+    if (st) st.textContent = "已更新。可以继续改提示词再重生成。";
+    if (btn) btn.disabled = false;
+    return;
+  }
+  if (task.status === "error") {
+    if (st) st.textContent = "出错：" + task.error;
+    if (btn) btn.disabled = false;
+    return;
+  }
+  if (st) st.textContent = (task.logs || []).slice(-1)[0] || "生成中…";
   setTimeout(() => pollRegen(taskId, name, idx, btn), 1500);
 }
 
 function renderInto(name, cards, xhs, wechat) {
   currentPackage = name;
+  closeRegenPanel();
+  editorCards = null;
+  editorOpen = false;
+  setWorkbenchOpen(false);
+  updateWorkbenchSummary(null);
+  $("card-editor").classList.add("hidden");
+  $("card-editor").innerHTML = "";
+  $("edit-cards").textContent = "编辑卡片文案";
+  $("save-cards").disabled = true;
   renderCards(name, cards);
   $("xhs").textContent = xhs;
   $("wechat").textContent = wechat;
+  resetDocEditors();
   $("meta").textContent = `发布包：${name}`;
   $("result").classList.remove("hidden");
+  loadReview(name);
 }
 
 function renderInputs(inp) {
@@ -118,7 +572,93 @@ function renderInputs(inp) {
   if (inp.mode) parts.push(`模式：${inp.mode}`);
   if (inp.extra_brief) parts.push(`额外指令：${inp.extra_brief}`);
   if (inp.copy_text) parts.push(`素材：${inp.copy_text.slice(0, 40)}…`);
-  $("inputs").innerHTML = "📝 本次提示词 — " + parts.join("　·　");
+  if (inp.recovered) parts.push("历史恢复：原始素材不可还原");
+  $("inputs").textContent = "📝 本次提示词 — " + parts.join("　·　");
+}
+
+function setSelectValue(id, value, fallback = "") {
+  const select = $(id);
+  const next = String(value ?? "");
+  const hasOption = Array.from(select.options).some((option) => option.value === next);
+  select.value = hasOption ? next : fallback;
+}
+
+function applyInputsToForm(inp) {
+  if (!inp || !inp.topic) return;
+  $("topic").value = inp.topic || "";
+  $("copy").value = inp.copy_text || "";
+  setSelectValue("style", inp.style || "", "");
+  setSelectValue("mode", inp.mode || "local", "local");
+  $("extra").value = inp.extra_brief || "";
+  $("push").checked = Boolean(inp.push);
+}
+
+function docButton(kind, cls) {
+  return document.querySelector(`.${cls}[data-kind="${kind}"]`);
+}
+
+function setDocEditMode(kind, editing, options = {}) {
+  const pre = $(kind);
+  const editor = $(`${kind}-editor`);
+  if (!pre || !editor) return;
+  docEditing[kind] = editing;
+  if (editing || options.discard) {
+    editor.value = pre.textContent;
+  }
+  pre.classList.toggle("hidden", editing);
+  editor.classList.toggle("hidden", !editing);
+  docButton(kind, "doc-edit")?.classList.toggle("hidden", editing);
+  docButton(kind, "doc-save")?.classList.toggle("hidden", !editing);
+  docButton(kind, "doc-cancel")?.classList.toggle("hidden", !editing);
+}
+
+function resetDocEditors() {
+  ["xhs", "wechat"].forEach((kind) => setDocEditMode(kind, false, { discard: true }));
+}
+
+async function saveDoc(kind) {
+  if (!currentPackage) return;
+  const saveButton = docButton(kind, "doc-save");
+  const editButton = docButton(kind, "doc-edit");
+  const editor = $(`${kind}-editor`);
+  if (!editor) return;
+  const originalText = saveButton ? saveButton.textContent : "保存";
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = "保存中…";
+  }
+  if (editButton) editButton.disabled = true;
+  $("status").textContent = kind === "xhs" ? "正在保存小红书正文…" : "正在保存公众号文章…";
+  try {
+    const result = await fetchJson(`/api/packages/${encodeURIComponent(currentPackage)}/docs`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [kind]: editor.value }),
+    });
+    $("xhs").textContent = result.xhs || "";
+    $("wechat").textContent = result.wechat || "";
+    setDocEditMode(kind, false, { discard: true });
+    renderReview(result.review);
+    renderInputs(result.inputs);
+    if (activeResult && activeResult.package_name === currentPackage) {
+      activeResult = {
+        ...activeResult,
+        xhs_md: result.xhs || "",
+        wechat_md: result.wechat || "",
+        review: result.review,
+        inputs: result.inputs || activeResult.inputs,
+      };
+    }
+    $("status").textContent = kind === "xhs" ? "小红书正文已保存。" : "公众号文章已保存。";
+  } catch (err) {
+    $("status").textContent = "保存文案失败：" + err.message;
+  } finally {
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.textContent = originalText;
+    }
+    if (editButton) editButton.disabled = false;
+  }
 }
 
 // 是否显示「回到最近生成」返回条
@@ -133,6 +673,7 @@ function showCurrent() {
   if (activeResult) {
     renderInto(activeResult.package_name, activeResult.cards, activeResult.xhs_md, activeResult.wechat_md);
     renderInputs(activeResult.inputs);
+    applyInputsToForm(activeResult.inputs);
   } else if (generating) {
     // 还没生成完：不显示旧结果，提示去看进度
     $("result").classList.add("hidden");
@@ -140,20 +681,34 @@ function showCurrent() {
 }
 
 async function showPackage(name) {
-  viewing = name;
-  const pkgs = await fetch("/api/packages").then((r) => r.json());
-  const pkg = pkgs.find((p) => p.name === name);
-  if (!pkg) return;
-  const docs = await fetch(`/api/packages/${encodeURIComponent(name)}/docs`).then((r) => r.json());
-  renderInto(name, pkg.cards, docs.xhs, docs.wechat);
-  const inp = await fetch(`/api/packages/${encodeURIComponent(name)}/inputs`).then((r) => r.json());
-  renderInputs(inp);
-  updateBackbar();
+  try {
+    viewing = name;
+    const pkgs = await fetchJson("/api/packages");
+    const pkg = pkgs.find((p) => p.name === name);
+    if (!pkg) return;
+    const docs = await fetchJson(`/api/packages/${encodeURIComponent(name)}/docs`);
+    renderInto(name, pkg.cards, docs.xhs, docs.wechat);
+    const inp = await fetchJson(`/api/packages/${encodeURIComponent(name)}/inputs`);
+    renderInputs(inp);
+    applyInputsToForm(inp);
+    updateBackbar();
+  } catch (err) {
+    $("status").textContent = "打开历史包失败：" + err.message;
+  }
 }
 
 async function poll(taskId) {
-  const task = await fetch(`/api/tasks/${taskId}`).then((r) => r.json());
+  let task;
+  try {
+    task = await fetchJson(`/api/tasks/${taskId}`);
+  } catch (err) {
+    generating = false;
+    $("status").textContent = "轮询失败：" + err.message;
+    $("gen").disabled = false;
+    return;
+  }
   $("logs").textContent = (task.logs || []).join("\n");
+  renderProgress(task.progress);
 
   if (task.status === "done") {
     generating = false;
@@ -166,6 +721,7 @@ async function poll(taskId) {
       $("status").textContent = summary;
       renderInto(r.package_name, r.cards, r.xhs_md, r.wechat_md);
       renderInputs(r.inputs);
+      applyInputsToForm(r.inputs);
     } else {
       // 用户正在看历史，不抢走视图，只提示 + 让返回条可用
       $("status").textContent = summary + "（点「回到最近生成」查看）";
@@ -196,6 +752,8 @@ async function generate() {
   $("result").classList.add("hidden");
   $("status").textContent = "已提交，生成中…（正式模式要几分钟）";
   $("logs").textContent = "";
+  resetProgress("已提交，等待生成…");
+  renderProgress({ percent: 1, message: "已提交，等待生成…", done: 0, total: 0 });
   const body = {
     topic,
     copy_text: $("copy").value,
@@ -204,22 +762,30 @@ async function generate() {
     extra_brief: $("extra").value,
     push: $("push").checked,
   };
-  const res = await fetch("/api/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }).then((r) => r.json());
-  if (res.task_id) poll(res.task_id);
-  else {
+  try {
+    const res = await fetchJson("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.task_id) poll(res.task_id);
+    else {
+      generating = false;
+      $("gen").disabled = false;
+      $("status").textContent = "提交失败：" + (res.detail || "未知错误");
+    }
+  } catch (err) {
     generating = false;
     $("gen").disabled = false;
-    $("status").textContent = "提交失败：" + (res.detail || "未知错误");
+    $("status").textContent = "提交失败：" + err.message;
   }
 }
 
 document.querySelectorAll(".copy").forEach((btn) => {
   btn.onclick = () => {
-    const text = $(btn.dataset.target).textContent;
+    const target = btn.dataset.target;
+    const editor = $(`${target}-editor`);
+    const text = editor && docEditing[target] ? editor.value : $(target).textContent;
     navigator.clipboard.writeText(text).then(() => {
       btn.textContent = "已复制";
       setTimeout(() => (btn.textContent = "复制"), 1200);
@@ -228,16 +794,48 @@ document.querySelectorAll(".copy").forEach((btn) => {
 });
 
 $("back-current").onclick = showCurrent;
+$("inspire-topic").onclick = () => inspire("topic");
+$("inspire-copy").onclick = () => inspire("copy");
+$("workbench-toggle").onclick = () => setWorkbenchOpen(!workbenchOpen);
+$("edit-cards").onclick = () => {
+  toggleCardEditor().catch((err) => {
+    $("status").textContent = "打开编辑器失败：" + err.message;
+  });
+};
+$("save-cards").onclick = () => {
+  saveCards().catch(() => {});
+};
+$("rerender-local").onclick = () => rerenderPackage("local");
+$("rerender-direct").onclick = () => rerenderPackage("background");
+
+document.querySelectorAll(".doc-edit").forEach((button) => {
+  button.onclick = () => setDocEditMode(button.dataset.kind, true);
+});
+document.querySelectorAll(".doc-save").forEach((button) => {
+  button.onclick = () => saveDoc(button.dataset.kind);
+});
+document.querySelectorAll(".doc-cancel").forEach((button) => {
+  button.onclick = () => setDocEditMode(button.dataset.kind, false, { discard: true });
+});
 
 $("push-now").onclick = async () => {
   if (!currentPackage) return;
   $("push-now").textContent = "推送中…";
-  const r = await fetch(`/api/packages/${encodeURIComponent(currentPackage)}/push`, { method: "POST" }).then((x) => x.json());
-  $("push-now").textContent = r.pushed ? "已推送 ✅" : "推送未生效（看日志）";
-  $("logs").textContent = (r.logs || []).join("\n");
+  try {
+    const r = await fetchJson(`/api/packages/${encodeURIComponent(currentPackage)}/push`, { method: "POST" });
+    $("push-now").textContent = r.pushed ? "已推送 ✅" : "推送未生效（看日志）";
+    $("logs").textContent = (r.logs || []).join("\n");
+  } catch (err) {
+    $("push-now").textContent = "推送失败";
+    $("logs").textContent = err.message;
+  }
   setTimeout(() => ($("push-now").textContent = "推送到 Telegram"), 2000);
 };
 
 $("gen").onclick = generate;
-loadPresets();
-loadHistory();
+loadPresets().catch((err) => {
+  $("status").textContent = "加载视觉风格失败：" + err.message;
+});
+loadHistory().catch((err) => {
+  $("status").textContent = "加载历史发布包失败：" + err.message;
+});

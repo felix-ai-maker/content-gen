@@ -15,20 +15,36 @@
   <main>
     <section class="panel form">
       <h2>① 输入</h2>
-      <label>选题
+      <label>
+        <div class="field-head">
+          <span>选题</span>
+          <button id="inspire-topic" type="button" class="mini subtle">AI 给选题灵感</button>
+        </div>
         <input id="topic" type="text" placeholder="例如：我为什么要搭一个自己的交易 Agent？" />
       </label>
-      <label>素材 / 原始想法（可选，自动拆卡）
+      <label class="inspire-direction">
+        <div class="field-head">
+          <span>灵感关键词 / 方向</span>
+          <span class="field-note">只用于 AI 灵感</span>
+        </div>
+        <input id="inspire-direction" type="text" placeholder="例如：复盘留痕、减少冲动、自动化工作流" />
+      </label>
+      <label>
+        <div class="field-head">
+          <span>素材 / 原始想法（可选，自动拆卡）</span>
+          <button id="inspire-copy" type="button" class="mini subtle">AI 扩写素材</button>
+        </div>
         <textarea id="copy" rows="5" placeholder="粘贴今天的想法、复盘、行情观察…"></textarea>
       </label>
+      <div id="inspire-panel" class="inspire-panel hidden"></div>
       <label>视觉风格
         <select id="style"></select>
       </label>
       <label>出图模式
         <select id="mode">
-          <option value="local">草稿（本地排版，省配额，最快）</option>
-          <option value="direct">正式（Nano Banana 整卡直出 + DeepSeek 创意）</option>
-          <option value="background">本地排版 + AI 背景</option>
+          <option value="background" selected>正式（固定字体排版 + AI 主视觉，推荐）</option>
+          <option value="local">草稿（固定排版，省配额，最快）</option>
+          <option value="direct">实验（AI 整卡直出，字体可能不一致）</option>
         </select>
       </label>
       <label>额外创意指令（可选，调提示词优化画面）
@@ -41,21 +57,67 @@
     <section class="panel output">
       <h2>② 进度 / 结果</h2>
       <div id="status" class="status">填好左边，点「开始生成」。</div>
+      <div id="progress" class="progress hidden">
+        <div class="progress-top">
+          <span id="progress-label">等待开始…</span>
+          <strong id="progress-percent">0%</strong>
+        </div>
+        <div class="progress-bar"><div id="progress-fill"></div></div>
+        <div id="progress-detail" class="progress-detail"></div>
+      </div>
       <pre id="logs" class="logs"></pre>
 
       <div id="result" class="result hidden">
         <div id="backbar" class="backbar hidden"><button id="back-current" class="linkbtn">← 回到最近生成的内容</button></div>
         <div class="meta" id="meta"></div>
         <div class="inputs" id="inputs"></div>
+        <div id="workbench" class="workbench collapsed">
+          <div class="workbench-head">
+            <div class="workbench-title">
+              <strong>高级工作台</strong>
+              <span id="workbench-summary">默认收起，展开后可编辑文案和重渲染。</span>
+            </div>
+            <button id="workbench-toggle" class="mini" aria-expanded="false">展开高级</button>
+          </div>
+          <div id="workbench-body" class="workbench-body hidden">
+            <div class="workbench-actions">
+              <button id="edit-cards" class="mini">编辑卡片文案</button>
+              <button id="save-cards" class="mini" disabled>保存文案</button>
+              <button id="rerender-local" class="mini">本地重渲染</button>
+              <button id="rerender-direct" class="mini primary">正式出图（固定排版）</button>
+            </div>
+            <div id="review" class="review"></div>
+            <div id="card-editor" class="card-editor hidden"></div>
+          </div>
+        </div>
         <div class="cards" id="cards"></div>
+        <div id="regen-panel" class="regen-panel hidden"></div>
         <div class="docs">
           <div class="doc">
-            <div class="doc-head">📕 小红书正文 <button data-target="xhs" class="copy">复制</button></div>
+            <div class="doc-head">
+              <span>📕 小红书正文</span>
+              <div class="doc-actions">
+                <button data-target="xhs" class="copy">复制</button>
+                <button data-kind="xhs" class="doc-edit mini">编辑</button>
+                <button data-kind="xhs" class="doc-save mini primary hidden">保存</button>
+                <button data-kind="xhs" class="doc-cancel mini hidden">取消</button>
+              </div>
+            </div>
             <pre id="xhs"></pre>
+            <textarea id="xhs-editor" class="doc-editor hidden"></textarea>
           </div>
           <div class="doc">
-            <div class="doc-head">📰 公众号文章 <button data-target="wechat" class="copy">复制</button></div>
+            <div class="doc-head">
+              <span>📰 公众号文章</span>
+              <div class="doc-actions">
+                <button data-target="wechat" class="copy">复制</button>
+                <button data-kind="wechat" class="doc-edit mini">编辑</button>
+                <button data-kind="wechat" class="doc-save mini primary hidden">保存</button>
+                <button data-kind="wechat" class="doc-cancel mini hidden">取消</button>
+              </div>
+            </div>
             <pre id="wechat"></pre>
+            <textarea id="wechat-editor" class="doc-editor hidden"></textarea>
           </div>
         </div>
         <button id="push-now" class="secondary">推送到 Telegram</button>

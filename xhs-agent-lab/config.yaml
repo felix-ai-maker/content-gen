@@ -178,6 +178,18 @@ creative_llm:
   timeout_seconds: 60
   temperature: 0.9
 
+# 文本文案层（可选）：用 DeepSeek 等文本大模型生成「卡片文案」和「图文正文」，
+# 让系统不再绑定单一题材，由本次选题/素材驱动。关闭、无 key、或调用失败/输出不合格时，
+# 自动回退 copy_pipeline / content_writer 的规则模板。删掉本段时复用上面的 creative_llm 设置。
+copy_llm:
+  enabled: true             # 需 export DEEPSEEK_API_KEY；无 key 时自动回退规则模板
+  provider: deepseek
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-v4-pro"
+  api_key_env: DEEPSEEK_API_KEY
+  timeout_seconds: 60
+  temperature: 0.8
+
 # Telegram 自动推送：生成发布包后把图文推到手机（纯发送，不影响别的 bot 接收）。
 # 凭据走环境变量，不要写进项目文件：
 #   export TELEGRAM_BOT_TOKEN="bot token"

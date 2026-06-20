@@ -25,21 +25,40 @@ class DirectCardRenderer:
         self.records: list[dict] = []
         self.preset: dict = {}
 
-    def render_all(self, cards: list[dict], output_dir: Path, topic: str, style_plan: dict) -> list[Path]:
+    def render_all(
+        self,
+        cards: list[dict],
+        output_dir: Path,
+        topic: str,
+        style_plan: dict,
+        progress=None,
+        log=None,
+    ) -> list[Path]:
         self.preset = style_plan.get("style_preset") or {}
         paths: list[Path] = []
+        total = len(cards)
         for index, card in enumerate(cards, start=1):
+            message = f"正在生成第 {index}/{total} 张卡片…"
+            if log:
+                log(message)
+            if progress:
+                progress(index - 1, total, message)
             image = self._generate_card(
                 cards=cards,
                 card=card,
                 index=index,
-                total=len(cards),
+                total=total,
                 topic=topic,
                 style_plan=style_plan,
             )
             path = output_dir / f"card_{index:02d}.png"
             image.save(path, "PNG", optimize=True)
             paths.append(path)
+            message = f"第 {index}/{total} 张已生成：{path.name}"
+            if log:
+                log(message)
+            if progress:
+                progress(index, total, message)
         self._write_generation_meta(output_dir)
         return paths
 
@@ -159,6 +178,7 @@ class DirectCardRenderer:
             page_instruction = self._content_instruction(card, index, display_bullets)
 
         context_block = self._context_block(cards, card, index, total)
+        grounded_visual_block = self._grounded_visual_block(card)
 
         preset = self.preset or {}
         preset_name = preset.get("name", "")
@@ -196,10 +216,13 @@ class DirectCardRenderer:
             【完整理解素材，不要直接画进图片】
             系列主题：{topic}
             自动视觉主题：{style_plan.get("name", "")} / {style_plan.get("theme", "")}
-            当前页视觉隐喻：{style.get("metaphor", "")}
+            当前页备用视觉隐喻（只能辅助，不能盖过文案）：{style.get("metaphor", "")}
             当前页视觉角色：{style.get("visual_role", "")}
 
             {context_block}
+
+            【本页画面必须贴近这些文字】
+            {grounded_visual_block}
 
             只允许渲染下面【可见文字】里的文字。除此之外，画面中不要出现任何可读文字、英文、数字、伪文字或标签。
             但插画物件、纸张、界面、工具、环境可以有丰富的纹理、结构、刻度、无字图标符号、光影和细节层次——只是这些细节里不能出现任何可读文字或伪文字。
@@ -213,7 +236,8 @@ class DirectCardRenderer:
             {creative_brief_block}
 
             视觉方向（本页风格模板：{preset_name}）：
-            - 内容驱动，不要套固定模板。每一页都要根据观点生成不同的、有想象力的画面隐喻，不要每页都是桌面 + 卡片。
+            - 文本驱动，不要套固定模板。主视觉必须直接回应本页标题、副标题、要点或底部结论；不要为了“高级感”把画面做得和文本关系很远。
+            - 抽象度控制：优先画具体对象、动作、流程、边界、记录、工具、路径；只有文案本身没有具体对象时，才用低抽象度隐喻。
             - 风格基调：{art_direction}
             - {palette_line}
             - 画面要有一个清楚的主视觉，并围绕它叠加有层次的支撑元素、环境、景深和材质光影；画面要充实、有信息量、有设计细节，但保持秩序和一个明确焦点。
@@ -254,10 +278,40 @@ class DirectCardRenderer:
             【设计任务】
             - 你必须利用上面的完整文案来理解本页，而不是只看一句视觉提示词。
             - 找出本页最核心的冲突：{self._page_conflict(card)}
-            - 把这个冲突转化成一个能一眼看懂的画面隐喻。
+            - 先从本页文字中提取具体对象、动作、流程或关系，再把它设计成能一眼看懂的主画面。
             - 图片里只画【可见文字】，完整文案只用于理解画面、情绪和信息层级。
             """
         ).strip()
+
+    def _grounded_visual_block(self, card: dict) -> str:
+        bullets = self._normalize_bullets(card)
+        title = self._plain(card.get("title", ""))
+        subtitle = self._plain(card.get("subtitle", ""))
+        highlight = self._plain(card.get("highlight", ""))
+        note = self._plain(card.get("note", ""))
+        text_units = [item for item in [title, subtitle, highlight, *bullets[:3], note] if item]
+        anchor = "；".join(text_units)
+        if len(anchor) > 180:
+            anchor = anchor[:179].rstrip("，。；、 ") + "。"
+
+        style = card.get("visual_style", {}) if isinstance(card.get("visual_style"), dict) else {}
+        metaphor = self._plain(style.get("metaphor", ""))
+        composition = self._plain(style.get("composition", ""))
+        details = self._plain(style.get("details", ""))
+
+        lines = [
+            f"文字依据：{anchor or title}",
+            "画面策略：主视觉先服务文字依据，尽量选择文案里能直接联想到的具体物件、动作、空间关系或流程结构。",
+            "不要把这一页处理成纯抽象符号、纯装饰图案、泛科技装置或和文案只有情绪相关的意象。",
+        ]
+        if metaphor:
+            lines.append(f"可参考但需贴近文本的隐喻：{metaphor}")
+        if composition:
+            lines.append(f"构图参考：{composition}")
+        if details:
+            lines.append(f"细节参考：{details}")
+        lines.append("判断标准：用户遮住文字只看图，也大致能猜到本页在讲什么。")
+        return "\n".join(lines)
 
     def _series_outline(self, cards: list[dict]) -> str:
         lines: list[str] = []
@@ -335,8 +389,8 @@ class DirectCardRenderer:
             封面要有“停下来”的力量，但不要粗暴大字海报。
             - 主标题 2 行左右，放在上半区或左上区，留出呼吸感。
             - 副标题只做一句解释，不要写成长段。
-            - 主视觉占画面 50%-65%，要和本页标题、核心观点直接相关，并用有层次的场景和细节把它撑满。
-            - 按本页风格模板的基调构图，主视觉服务于下面的隐喻，可以加入丰富的环境、道具和光影细节，但不要套用与内容无关的固定场景。
+            - 主视觉占画面 50%-65%，必须和封面标题、核心观点直接相关，并用有层次的场景和细节把它撑满。
+            - 按本页风格模板的基调构图，先贴近标题和副标题，再适度视觉化；不要套用与内容无关的固定场景。
             - 不要做股票行情感，不要交易软件感，不要蓝色仪表盘感。
 
             主视觉：
@@ -353,7 +407,7 @@ class DirectCardRenderer:
             - 页码小，不抢戏。
             - 标题清楚，不要超大。
             - 核心判断做成视觉焦点之一，可以像一句批注、研究笔记、贴纸或画面中的重点信息。
-            - 主视觉占 55%-65%，用一个有层次、有细节的隐喻场景解释这一页，而不是放一堆零散图标。
+            - 主视觉占 55%-65%，从本页标题、要点、底部结论里提取具体对象/动作/关系来设计，而不是放一堆零散图标或纯抽象隐喻。
             - 底部一句作为收束，让用户愿意继续翻下一张。
             - 画面结构和隐喻每页都要明显不同，不要雷同、不要每页都套桌面 + 卡片那套元素。
 
@@ -369,8 +423,9 @@ class DirectCardRenderer:
         direction = f"画面整体服从风格模板基调：{art}" if art else ""
         if metaphor:
             return (
-                f"围绕这个隐喻做一个主视觉：{metaphor}。"
-                "以它为核心焦点，叠加有层次的支撑细节、道具、环境和材质光影，让画面充实、有信息量、有设计感，但保持秩序和焦点。"
+                f"可以参考这个视觉方向，但必须贴近本页文案：{metaphor}。"
+                "如果这个方向和标题、要点不够近，请优先服从本页文案，改成更直接的物件、动作、流程或关系。"
+                "以文案对应的具体主视觉为核心焦点，叠加有层次的支撑细节、道具、环境和材质光影，让画面充实、有信息量、有设计感，但保持秩序和焦点。"
                 f"{direction}"
                 "物件可以有丰富的无字纹理和结构，但不要出现可读文字，不要使用机器人、芯片、代码屏或股票元素。"
             )
@@ -448,12 +503,58 @@ class DirectCardRenderer:
         if not (card.get("type") == "cover" or len(title_lines) > 2):
             return title_lines
         joined = "".join(title_lines)
-        if "交易最危险的" in joined and "不是亏钱" in joined and "为什么买" in joined:
-            return ["交易最危险的不是亏钱", "是你忘了为什么买"]
+        # 封面/超长标题切成两行：优先在中点附近按转折词或标点断句，找不到再按字数平均切。
+        if len(joined) <= 12:
+            return [joined]
+        split = DirectCardRenderer._split_two_lines(joined)
+        if split:
+            return split
         if len(title_lines) <= 2:
             return title_lines
         midpoint = max(1, len(title_lines) // 2)
         return ["".join(title_lines[:midpoint]), "".join(title_lines[midpoint:])]
+
+    @staticmethod
+    def _split_two_lines(text: str) -> list[str] | None:
+        """把一行标题切成均衡的两行：先找靠近中点的语义边界，再退到标点，最后按字数中点。"""
+        text = text.strip()
+        n = len(text)
+        if n < 8:
+            return None
+        mid = n // 2
+        window = max(2, n // 4)  # 只接受离中点不太远的切点，避免一行特别短。
+
+        # 1) 转折/连接词边界：在词首切，让下半句以它起头（如「是…」「而是…」「但…」）。
+        connectors = ["而是", "但是", "不是", "却是", "才是", "是", "但", "却", "而", "也", "更", "让", "把", "再"]
+        best = None
+        for pos in range(1, n):
+            if abs(pos - mid) > window:
+                continue
+            for word in connectors:
+                if text.startswith(word, pos):
+                    score = abs(pos - mid)
+                    if best is None or score < best[0]:
+                        best = (score, pos)
+        if best:
+            return [text[: best[1]].strip(), text[best[1] :].strip()]
+
+        # 2) 标点边界：在标点后切。
+        best = None
+        for pos in range(1, n):
+            if abs(pos - mid) > window:
+                continue
+            if text[pos - 1] in "，。；、！？,.;!?":
+                score = abs(pos - mid)
+                if best is None or score < best[0]:
+                    best = (score, pos)
+        if best:
+            head = text[: best[1]].rstrip("，。；、！？,.;!? ")
+            tail = text[best[1] :].strip()
+            if head and tail:
+                return [head, tail]
+
+        # 3) 兜底：按字数中点平均切。
+        return [text[:mid].strip(), text[mid:].strip()]
 
     @staticmethod
     def _normalize_bullets(card: dict) -> list[str]:
