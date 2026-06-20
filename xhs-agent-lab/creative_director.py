@@ -128,6 +128,66 @@ def _parse_briefs(content: str, expected: int) -> list[dict] | None:
     return normalized
 
 
+def choose_style_preset(
+    topic: str,
+    copy_text: str,
+    cards: list[dict],
+    presets: dict,
+    llm_cfg: dict | None,
+) -> str | None:
+    """让文本大模型按选题的题材+情绪，从 presets 里挑一套最贴的风格 key。
+    任何失败/未启用/无 key/输出不在 presets 内，返回 None（调用方回退关键词匹配）。"""
+    if not llm_cfg or not llm_cfg.get("enabled") or not presets:
+        return None
+    api_key = os.getenv(str(llm_cfg.get("api_key_env", "DEEPSEEK_API_KEY")))
+    if not api_key:
+        return None
+
+    options = "\n".join(
+        f"- {key}：{(v or {}).get('name', '')} —— {str((v or {}).get('art_direction', ''))[:70]}"
+        for key, v in presets.items()
+    )
+    titles = " / ".join(str(c.get("title", "")).strip() for c in cards[:4] if str(c.get("title", "")).strip())
+    system = (
+        "你是资深视觉总监。根据选题的题材和情绪基调，从给定风格列表里选出最合适的一套。"
+        "情绪重的内容（亏损、焦虑、复盘、自我对话）优先选能引发真实共鸣的真实人物/情绪类风格，"
+        "而不是抽象符号或纯高级感。"
+    )
+    user = (
+        f"选题：{topic.strip()}\n"
+        f"内容概要：{titles or copy_text.strip()[:80]}\n\n"
+        f"可选风格（key：名称 —— 方向）：\n{options}\n\n"
+        "只输出一个最合适的 key（列表里的原词），不要解释、不要其它任何内容。"
+    )
+    payload = {
+        "model": llm_cfg.get("model", "deepseek-chat"),
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        "temperature": 0.3,
+        "stream": False,
+    }
+    try:
+        content = _post_chat(
+            base_url=str(llm_cfg.get("base_url", "https://api.deepseek.com")),
+            api_key=api_key,
+            payload=payload,
+            timeout=min(20.0, float(llm_cfg.get("timeout_seconds", 60))),
+        )
+    except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as exc:
+        print(f"[creative_llm] 风格匹配调用失败，回退关键词匹配：{exc}")
+        return None
+
+    text = content.strip()
+    # 优先精确匹配 key，其次包含匹配。
+    for key in presets:
+        if text == key:
+            return key
+    for key in presets:
+        if key in text:
+            print(f"[creative_llm] LLM 智能匹配风格：{key}")
+            return key
+    return None
+
+
 def generate_visual_briefs(
     topic: str,
     copy_text: str,

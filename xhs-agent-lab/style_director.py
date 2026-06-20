@@ -224,6 +224,20 @@ def apply_style_plan(
     combined = "\n".join([topic, copy_text, *_card_texts(styled_cards)])
     profile_key, scores = _choose_profile(combined)
     profile = STYLE_PROFILES[profile_key]
+
+    # 未手动指定风格时，先让文本大模型按选题情绪/题材智能匹配；失败回退关键词匹配。
+    if not style_override:
+        try:
+            from creative_director import choose_style_preset
+
+            llm_key = choose_style_preset(
+                topic, copy_text, styled_cards, config.get("style_presets") or {}, config.get("creative_llm")
+            )
+            if llm_key:
+                style_override = llm_key
+        except Exception as exc:  # noqa: BLE001 - 风格匹配永不阻断主流程
+            print(f"[creative_llm] 跳过风格匹配，回退关键词：{exc}")
+
     preset = resolve_style_preset(topic, copy_text, config, override=style_override)
 
     # 文本创意层（可选）：用 DeepSeek 为每页创意生成视觉 brief；任何失败返回 None，
