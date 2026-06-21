@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -472,6 +473,29 @@ def api_xhs_search(req: XhsSearchRequest) -> dict:
     return {"keyword": keyword, "notes": _parse_xhs_search(res["output"]), "output": res["output"]}
 
 
+_xhs_feed_lock = threading.Lock()
+
+
+def _fetch_feed_detail(feed_id: str, xsec_token: str, attempts: int = 3, retry_delay: float = 5.0) -> str:
+    """取笔记正文。'不可访问' 多为瞬时风控，串行 + 重试可把成功率从 ~50% 拉到接近 100%。"""
+    args = json.dumps({"feed_id": feed_id, "xsec_token": xsec_token}, ensure_ascii=False)
+    with _xhs_feed_lock:  # 串行：并发的无头浏览器导航会互相干扰、加剧失败
+        for attempt in range(attempts):
+            res = _run_xhs("mcp-call.sh", "get_feed_detail", args, timeout=70)
+            data = _mcp_text_json(res["output"])
+            if isinstance(data, dict):
+                note = (data.get("data") or {}).get("note") or data.get("noteCard") or data.get("note") or {}
+                if isinstance(note, dict):
+                    title = str(note.get("title") or note.get("displayTitle") or "").strip()
+                    desc = str(note.get("desc") or note.get("content") or "").strip()
+                    text = (title + "\n\n" + desc).strip()
+                    if text:
+                        return text
+            if attempt < attempts - 1:
+                time.sleep(retry_delay)
+    return ""
+
+
 class XhsFeedRequest(BaseModel):
     feed_id: str
     xsec_token: str = ""
@@ -484,21 +508,9 @@ def api_xhs_feed(req: XhsFeedRequest) -> dict:
         raise HTTPException(status_code=400, detail="缺少 feed_id。")
     if not _mcp_running():
         raise HTTPException(status_code=503, detail="MCP 未启动。")
-    args = json.dumps({"feed_id": req.feed_id, "xsec_token": req.xsec_token}, ensure_ascii=False)
-    res = _run_xhs("mcp-call.sh", "get_feed_detail", args, timeout=60)
-    data = _mcp_text_json(res["output"])
-    text = ""
-    if isinstance(data, dict):
-        note = (data.get("data") or {}).get("note") or data.get("noteCard") or data.get("note") or {}
-        if isinstance(note, dict):
-            title = str(note.get("title") or note.get("displayTitle") or "").strip()
-            desc = str(note.get("desc") or note.get("content") or "").strip()
-            text = (title + "\n\n" + desc).strip()
+    text = _fetch_feed_detail(req.feed_id, req.xsec_token)
     if not text:
-        raw = res["output"] or ""
-        if any(k in raw for k in ("不可访问", "Available Right Now", "扫码查看", "失败")):
-            raise HTTPException(status_code=422, detail="这篇笔记打不开（可能已删 / 私密 / 被风控），换一篇试试。")
-        raise HTTPException(status_code=502, detail="没取到正文。")
+        raise HTTPException(status_code=422, detail="这篇笔记重试多次仍打不开（可能已删 / 私密），换一篇试试。")
     return {"text": text}
 
 

@@ -1355,7 +1355,7 @@ async function xhsSearch() {
 async function xhsTeardown(btn) {
   const orig = btn.textContent;
   btn.disabled = true;
-  btn.textContent = "取正文…";
+  btn.textContent = "取正文…(含重试)";
   try {
     const data = await fetchJson("/api/xhs/feed", {
       method: "POST",
