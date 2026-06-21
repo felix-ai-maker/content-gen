@@ -35,6 +35,19 @@ from pipeline import (
     regenerate_card,
     update_package_cards,
 )
+from playbook_store import (  # 招式库 + 拆解存档的持久化逻辑（已抽出）
+    DEFAULT_CATEGORIES,
+    PLAYBOOK_PATH,
+    TEARDOWNS_PATH,
+    default_categories as _default_categories,
+    default_playbook_doc as _default_playbook_doc,
+    extract_json_array as _extract_json_array,
+    load_playbook as _load_playbook,
+    normalize_categories as _normalize_categories,
+    normalize_playbooks as _normalize_playbooks,
+    read_teardowns as _read_teardowns,
+    save_playbook as _save_playbook,
+)
 
 DIST = PROJECT_ROOT / "dist"
 STATIC = Path(__file__).resolve().parent / "static"
@@ -140,19 +153,7 @@ ANALYZER_SKILL_MD = SKILLS_DIR / "xiaohongshu-note-analyzer" / "SKILL.md"
 XHS_SCRIPTS = SKILLS_DIR / "xiaohongshu" / "scripts"
 _ANALYZER_FRAMEWORK: dict = {}
 
-# 沉淀闭环：拆解存档 + 分类招式库（copy_writer 生成时读 playbook.json，只注入启用类别）。
-PLAYBOOK_PATH = PROJECT_ROOT / "playbook.json"
-TEARDOWNS_PATH = PROJECT_ROOT / "teardowns.jsonl"
-DEFAULT_CATEGORIES = [
-    ("base", "基础准则"),
-    ("title", "标题钩子"),
-    ("emotion", "情绪驱动"),
-    ("save", "收藏动机"),
-    ("interact", "互动评论"),
-    ("social", "社交货币 / 转发"),
-    ("structure", "结构节奏"),
-    ("topic", "选题时机"),
-]
+# 沉淀闭环：拆解存档 + 分类招式库的常量与持久化逻辑已抽到 playbook_store。
 
 
 def _analyzer_framework() -> str:
@@ -243,21 +244,6 @@ def api_analyze(req: AnalyzeRequest) -> dict:
     return {"report": report, "id": entry["id"]}
 
 
-def _read_teardowns() -> list[dict]:
-    if not TEARDOWNS_PATH.exists():
-        return []
-    rows: list[dict] = []
-    for line in TEARDOWNS_PATH.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rows.append(json.loads(line))
-        except ValueError:
-            continue
-    return list(reversed(rows))  # 最近在前
-
-
 @app.get("/api/teardowns")
 def api_teardowns() -> list[dict]:
     """拆解历史（最近在前），列表带预览，详情含完整报告。"""
@@ -273,80 +259,6 @@ def api_teardowns() -> list[dict]:
             }
         )
     return out
-
-
-def _default_categories() -> list[dict]:
-    return [{"key": k, "name": n, "enabled": True, "tactics": []} for k, n in DEFAULT_CATEGORIES]
-
-
-def _default_playbook_doc() -> dict:
-    return {
-        "active": "default",
-        "playbooks": [{"id": "default", "name": "默认打法", "desc": "通用爆款准则。", "categories": _default_categories()}],
-    }
-
-
-def _load_playbook() -> dict:
-    """统一返回新结构 {active, playbooks:[{id,name,desc,categories}]}；兼容旧 {categories}。"""
-    if PLAYBOOK_PATH.exists():
-        try:
-            data = json.loads(PLAYBOOK_PATH.read_text(encoding="utf-8"))
-        except ValueError:
-            data = None
-        if isinstance(data, dict) and isinstance(data.get("playbooks"), list) and data["playbooks"]:
-            return data
-        if isinstance(data, dict) and isinstance(data.get("categories"), list):
-            return {
-                "active": "default",
-                "playbooks": [{"id": "default", "name": "默认打法", "desc": "", "categories": data["categories"]}],
-            }
-    return _default_playbook_doc()
-
-
-def _normalize_categories(raw: list) -> list[dict]:
-    cats: list[dict] = []
-    seen: set[str] = set()
-    for item in raw or []:
-        if not isinstance(item, dict):
-            continue
-        key = str(item.get("key") or "").strip() or uuid.uuid4().hex[:6]
-        while key in seen:
-            key = uuid.uuid4().hex[:6]
-        seen.add(key)
-        cats.append(
-            {
-                "key": key,
-                "name": str(item.get("name") or "未命名").strip(),
-                "enabled": bool(item.get("enabled", True)),
-                "tactics": [str(t).strip() for t in (item.get("tactics") or []) if str(t).strip()],
-            }
-        )
-    return cats
-
-
-def _normalize_playbooks(raw: list) -> list[dict]:
-    pbs: list[dict] = []
-    seen: set[str] = set()
-    for item in raw or []:
-        if not isinstance(item, dict):
-            continue
-        pid = str(item.get("id") or "").strip() or uuid.uuid4().hex[:8]
-        while pid in seen:
-            pid = uuid.uuid4().hex[:8]
-        seen.add(pid)
-        pbs.append(
-            {
-                "id": pid,
-                "name": str(item.get("name") or "未命名打法").strip(),
-                "desc": str(item.get("desc") or "").strip(),
-                "categories": _normalize_categories(item.get("categories") or []),
-            }
-        )
-    return pbs
-
-
-def _save_playbook(data: dict) -> None:
-    PLAYBOOK_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 @app.get("/api/playbook")
@@ -385,22 +297,6 @@ class DistillRequest(BaseModel):
     text: str = ""  # 拆解报告或原文
     id: str = ""  # 或引用某条 teardown
     playbook_id: str = ""  # 沉淀到哪套打法（空=当前 active）
-
-
-def _extract_json_array(content: str) -> list:
-    text = content.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.lstrip().lower().startswith("json"):
-            text = text.lstrip()[4:]
-    start, end = text.find("["), text.rfind("]")
-    if start == -1 or end == -1 or end <= start:
-        return []
-    try:
-        data = json.loads(text[start : end + 1])
-    except ValueError:
-        return []
-    return data if isinstance(data, list) else []
 
 
 @app.post("/api/playbook/distill")
