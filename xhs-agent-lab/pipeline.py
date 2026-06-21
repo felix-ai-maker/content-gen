@@ -423,6 +423,11 @@ def update_package_cards(
     inputs = json.loads(inputs_path.read_text(encoding="utf-8")) if inputs_path.exists() else {}
     topic = str(inputs.get("topic") or package_name).strip()
     copy_text = str(inputs.get("copy_text") or "")
+    # 复用原始打法和锚定关键词，改完卡片重建正文才不偏离原意。
+    if inputs.get("playbook"):
+        config["playbook_id"] = str(inputs["playbook"]).strip()
+    if inputs.get("direction"):
+        config["anchor"] = str(inputs["direction"]).strip()
     cards_source = "edited-cards_used"
     copy_source = "inputs.json" if copy_text.strip() else "未提供"
 
@@ -504,6 +509,11 @@ def rebuild_package(
     topic = str(inputs.get("topic") or package_name).strip()
     copy_text = str(inputs.get("copy_text") or "")
     style = str(inputs.get("style") or "") or None
+    # 复用原始生成时选的打法和锚定关键词，重渲染才不会飘回默认。
+    if inputs.get("playbook"):
+        config["playbook_id"] = str(inputs["playbook"]).strip()
+    if inputs.get("direction"):
+        config["anchor"] = str(inputs["direction"]).strip()
 
     style_plan_path = output_dir / "style_plan.json"
     style_plan = json.loads(style_plan_path.read_text(encoding="utf-8")) if style_plan_path.exists() else {}
