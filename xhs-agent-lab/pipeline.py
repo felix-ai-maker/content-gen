@@ -679,7 +679,8 @@ def generate_package(
 
     emit_progress(progress, stage="prepare", percent=3, message="正在读取配置和素材…")
     direct = mode == "direct"
-    if mode == "local":
+    text_only = mode == "text"  # 纯文案：只出文字，不出图
+    if mode in {"local", "text"}:
         config.setdefault("image_model", {})["enabled"] = False
     if extra_brief and extra_brief.strip():
         config["extra_brief"] = extra_brief.strip()
@@ -698,24 +699,33 @@ def generate_package(
         done=0,
         total=len(cards),
     )
-    log("正在规划风格、创意与正文…")
-    emit_progress(progress, stage="style", percent=12, message="正在规划风格、创意与正文…", done=0, total=len(cards))
-    # 正文只依赖卡片文字、与视觉风格无关，故与风格规划+视觉 brief 并发，省一次串行等待。
-    # apply_style_plan 内部对卡片做 deepcopy 再改，不会与正文线程共享可变状态。
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        body_future = executor.submit(
-            compose_body,
-            topic=topic,
-            cards=cards,
-            config=config,
-            cards_source=cards_source,
-            copy_text=resolved_copy,
+    if text_only:
+        # 纯文案：只要文字，跳过视觉风格规划（省两次 LLM 调用），也跳过出图。
+        log("正在生成文案…")
+        emit_progress(progress, stage="copy", percent=20, message="正在生成文案…", done=0, total=len(cards))
+        style_plan = {}
+        xhs_post, wechat_article = compose_body(
+            topic=topic, cards=cards, config=config, cards_source=cards_source, copy_text=resolved_copy
         )
-        cards, style_plan = apply_style_plan(
-            cards=cards, topic=topic, copy_text=resolved_copy, config=config, style_override=style
-        )
-        xhs_post, wechat_article = body_future.result()
-    emit_progress(progress, stage="style", percent=26, message="风格、创意与正文完成。", done=0, total=len(cards))
+    else:
+        log("正在规划风格、创意与正文…")
+        emit_progress(progress, stage="style", percent=12, message="正在规划风格、创意与正文…", done=0, total=len(cards))
+        # 正文只依赖卡片文字、与视觉风格无关，故与风格规划+视觉 brief 并发，省一次串行等待。
+        # apply_style_plan 内部对卡片做 deepcopy 再改，不会与正文线程共享可变状态。
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            body_future = executor.submit(
+                compose_body,
+                topic=topic,
+                cards=cards,
+                config=config,
+                cards_source=cards_source,
+                copy_text=resolved_copy,
+            )
+            cards, style_plan = apply_style_plan(
+                cards=cards, topic=topic, copy_text=resolved_copy, config=config, style_override=style
+            )
+            xhs_post, wechat_article = body_future.result()
+        emit_progress(progress, stage="style", percent=26, message="风格、创意与正文完成。", done=0, total=len(cards))
 
     timezone = config.get("timezone", "Asia/Shanghai")
     output_dir = make_output_dir(project_root, topic, timezone)
@@ -728,54 +738,61 @@ def generate_package(
     write_markdown(output_dir / "小红书正文.md", xhs_post)
     write_markdown(output_dir / "公众号文章.md", wechat_article)
     write_json(output_dir / "cards_used.json", {"cards": cards})
-    write_json(output_dir / "style_plan.json", style_plan)
+    if style_plan:
+        write_json(output_dir / "style_plan.json", style_plan)
     if resolved_copy.strip():
         write_markdown(output_dir / "source_copy.md", resolved_copy)
 
-    log("正在生成卡片图…")
-    render_start = 32
-    render_span = 58
+    if text_only:
+        rendered_paths: list[Path] = []
+        log("纯文案模式：跳过出图。")
+    else:
+        log("正在生成卡片图…")
+        render_start = 32
+        render_span = 58
 
-    def render_progress(done: int, total: int, message: str) -> None:
-        percent = render_start + round((done / max(1, total)) * render_span)
+        def render_progress(done: int, total: int, message: str) -> None:
+            percent = render_start + round((done / max(1, total)) * render_span)
+            emit_progress(
+                progress,
+                stage="render",
+                percent=percent,
+                message=message,
+                done=done,
+                total=total,
+            )
+
         emit_progress(
             progress,
             stage="render",
-            percent=percent,
-            message=message,
-            done=done,
-            total=total,
+            percent=render_start,
+            message=f"开始生成卡片图，共 {len(cards)} 张。",
+            done=0,
+            total=len(cards),
         )
-
-    emit_progress(
-        progress,
-        stage="render",
-        percent=render_start,
-        message=f"开始生成卡片图，共 {len(cards)} 张。",
-        done=0,
-        total=len(cards),
-    )
-    if direct:
-        renderer = DirectCardRenderer(config=config, project_root=project_root)
-        rendered_paths = renderer.render_all(
-            cards=cards,
-            output_dir=output_dir,
-            topic=topic,
-            style_plan=style_plan,
-            progress=render_progress,
-            log=log,
+        if direct:
+            renderer = DirectCardRenderer(config=config, project_root=project_root)
+            rendered_paths = renderer.render_all(
+                cards=cards,
+                output_dir=output_dir,
+                topic=topic,
+                style_plan=style_plan,
+                progress=render_progress,
+                log=log,
+            )
+        else:
+            renderer = CardRenderer(config=config, project_root=project_root)
+            rendered_paths = renderer.render_all(
+                cards=cards, output_dir=output_dir, topic=topic, progress=render_progress, log=log
+            )
+        emit_progress(
+            progress,
+            stage="render",
+            percent=92,
+            message=f"卡片图生成完成，共 {len(rendered_paths)} 张。",
+            done=len(rendered_paths),
+            total=len(cards),
         )
-    else:
-        renderer = CardRenderer(config=config, project_root=project_root)
-        rendered_paths = renderer.render_all(cards=cards, output_dir=output_dir, topic=topic, progress=render_progress, log=log)
-    emit_progress(
-        progress,
-        stage="render",
-        percent=92,
-        message=f"卡片图生成完成，共 {len(rendered_paths)} 张。",
-        done=len(rendered_paths),
-        total=len(cards),
-    )
 
     emit_progress(progress, stage="finalize", percent=95, message="正在整理发布包…", done=len(rendered_paths), total=len(cards))
     write_markdown(

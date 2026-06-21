@@ -214,6 +214,10 @@ function cardIndexFromName(fname) {
 }
 
 function renderCards(name, cards) {
+  if (!cards || !cards.length) {
+    $("cards").innerHTML = `<div class="cards-empty">📝 纯文案模式：没有图片。下方是小红书 / 公众号正文，可直接复制；分卡脚本（每张配图该写什么）在「高级工作台 → 编辑卡片文案」里。</div>`;
+    return;
+  }
   $("cards").innerHTML = cards
     .map((c) => {
       const idx = cardIndexFromName(c);

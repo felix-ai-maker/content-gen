@@ -804,3 +804,6 @@ button.mini.subtle:hover { background: #e8e1d5; }
 .xhs-metrics { font-size: 12px; color: #9a8f7d; }
 .xhs-teardown { margin-top: 4px; }
 .login-ok { color: #1f4e3d; font-weight: 600; font-size: 15px; padding: 14px; }
+
+/* 纯文案模式：无图片提示 */
+.cards-empty { padding: 16px; background: #faf7f0; border: 1px dashed #d8cfbd; border-radius: 10px; color: #6f685c; font-size: 13px; line-height: 1.7; }
