@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -697,20 +698,29 @@ def generate_package(
         done=0,
         total=len(cards),
     )
-    log("正在规划风格与创意…")
-    emit_progress(progress, stage="style", percent=12, message="正在规划风格与创意…", done=0, total=len(cards))
-    cards, style_plan = apply_style_plan(
-        cards=cards, topic=topic, copy_text=resolved_copy, config=config, style_override=style
-    )
-    emit_progress(progress, stage="style", percent=24, message="风格与创意规划完成。", done=0, total=len(cards))
+    log("正在规划风格、创意与正文…")
+    emit_progress(progress, stage="style", percent=12, message="正在规划风格、创意与正文…", done=0, total=len(cards))
+    # 正文只依赖卡片文字、与视觉风格无关，故与风格规划+视觉 brief 并发，省一次串行等待。
+    # apply_style_plan 内部对卡片做 deepcopy 再改，不会与正文线程共享可变状态。
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        body_future = executor.submit(
+            compose_body,
+            topic=topic,
+            cards=cards,
+            config=config,
+            cards_source=cards_source,
+            copy_text=resolved_copy,
+        )
+        cards, style_plan = apply_style_plan(
+            cards=cards, topic=topic, copy_text=resolved_copy, config=config, style_override=style
+        )
+        xhs_post, wechat_article = body_future.result()
+    emit_progress(progress, stage="style", percent=26, message="风格、创意与正文完成。", done=0, total=len(cards))
 
     timezone = config.get("timezone", "Asia/Shanghai")
     output_dir = make_output_dir(project_root, topic, timezone)
 
-    emit_progress(progress, stage="copy", percent=28, message="正在生成正文和发布检查…", done=0, total=len(cards))
-    xhs_post, wechat_article = compose_body(
-        topic=topic, cards=cards, config=config, cards_source=cards_source, copy_text=resolved_copy
-    )
+    emit_progress(progress, stage="copy", percent=28, message="正在整理正文和发布检查…", done=0, total=len(cards))
     quality = run_quality_checks(
         topic=topic, cards=cards, xhs_post=xhs_post, wechat_article=wechat_article, config=config
     )
