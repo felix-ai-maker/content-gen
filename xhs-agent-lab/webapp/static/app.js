@@ -939,10 +939,67 @@ function switchResearchTab(tab) {
   });
   $("tab-analyze").classList.toggle("hidden", tab !== "analyze");
   $("tab-playbook").classList.toggle("hidden", tab !== "playbook");
-  $("tab-search").classList.toggle("hidden", tab !== "search");
-  if (tab === "search") loadXhsStatus().catch(() => {});
   if (tab === "analyze") loadTeardowns().catch(() => {});
   if (tab === "playbook") loadPlaybook().catch(() => {});
+}
+
+// ===== 灵感发现 tab =====
+function switchDiscoverTab(dtab) {
+  document.querySelectorAll(".dtab").forEach((btn) => btn.classList.toggle("active", btn.dataset.dtab === dtab));
+  $("dpane-xhs").classList.toggle("hidden", dtab !== "xhs");
+  $("dpane-ai").classList.toggle("hidden", dtab !== "ai");
+  if (dtab === "xhs") loadXhsStatus().catch(() => {});
+}
+
+async function discInspire() {
+  const direction = $("disc-direction").value.trim();
+  if (!direction) {
+    $("disc-inspire-result").innerHTML = `<div class="disc-empty">先输入一个方向 / 关键词。</div>`;
+    return;
+  }
+  $("disc-inspire-btn").disabled = true;
+  $("disc-inspire-result").innerHTML = `<div class="disc-empty">AI 搜灵感中…</div>`;
+  try {
+    const data = await fetchJson("/api/inspire", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target: "both", direction }),
+    });
+    const topics = (data.topics || [])
+      .map(
+        (t) => `
+      <div class="disc-card">
+        <div class="disc-card-body">
+          <strong>${escapeHTML(t.title || "")}</strong>
+          <span class="disc-meta">${escapeHTML(t.angle || "")}</span>
+          ${t.hook ? `<span class="disc-hook">钩子：${escapeHTML(t.hook)}</span>` : ""}
+        </div>
+        <button type="button" class="mini primary disc-use" data-topic="${escapeHTML(t.title || "")}" data-dir="${escapeHTML(direction)}">用它去创作</button>
+      </div>`
+      )
+      .join("");
+    const mats = (data.materials || [])
+      .map(
+        (m) => `<div class="disc-card"><div class="disc-card-body"><strong>${escapeHTML(m.title || "素材")}</strong><span class="disc-meta">${escapeHTML(m.draft || "")}</span></div></div>`
+      )
+      .join("");
+    $("disc-inspire-result").innerHTML =
+      `<div class="disc-group-title">选题候选（${data.source === "ai" ? "AI" : "本地"}）</div>${topics || "<div class='disc-empty'>无</div>"}` +
+      (mats ? `<div class="disc-group-title">素材草稿</div>${mats}` : "");
+    document.querySelectorAll(".disc-use").forEach((btn) => {
+      btn.onclick = () => {
+        $("topic").value = btn.dataset.topic;
+        $("inspire-direction").value = btn.dataset.dir;
+        switchView("create");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        $("status").textContent = "已带入选题，填好其余项点「开始生成」。";
+      };
+    });
+  } catch (err) {
+    $("disc-inspire-result").innerHTML = `<div class="disc-empty">搜灵感失败：${escapeHTML(err.message)}</div>`;
+  } finally {
+    $("disc-inspire-btn").disabled = false;
+  }
 }
 
 // 视图切换里历史已并入工作台（create），不再单独处理 history。
@@ -1261,6 +1318,7 @@ async function xhsSearch() {
       body: JSON.stringify({ keyword }),
     });
     $("xhs-result").textContent = data.output || "（无结果）";
+    $("xhs-to-analyze").classList.toggle("hidden", !data.output);
   } catch (err) {
     $("xhs-result").textContent = "搜索失败：" + err.message;
   } finally {
@@ -1269,13 +1327,32 @@ async function xhsSearch() {
 }
 
 async function xhsLoginQr() {
-  $("xhs-result").textContent = "获取登录二维码…";
+  const box = $("xhs-qr");
+  box.innerHTML = `<span class="disc-empty">获取登录二维码…</span>`;
   try {
     const data = await fetchJson("/api/xhs/login-qr", { method: "POST" });
-    $("xhs-result").textContent = data.output || "（无返回）";
+    const out = (data.output || "").trim();
+    const url = (out.match(/https?:\/\/\S+/) || [])[0];
+    if (out.startsWith("data:image") || /^[A-Za-z0-9+/=\s]{120,}$/.test(out)) {
+      const src = out.startsWith("data:image") ? out : "data:image/png;base64," + out.replace(/\s+/g, "");
+      box.innerHTML = `<img class="xhs-qr-img" alt="登录二维码" src="${src}" /><div class="disc-empty">用小红书 App 扫码登录</div>`;
+    } else if (url) {
+      box.innerHTML = `<div class="disc-empty">用小红书 App 扫这个链接的二维码：</div><a href="${escapeHTML(url)}" target="_blank">${escapeHTML(url)}</a>`;
+    } else {
+      box.innerHTML = `<pre class="research-result">${escapeHTML(out || "（无返回，确认 MCP 已启动）")}</pre>`;
+    }
   } catch (err) {
-    $("xhs-result").textContent = "获取失败：" + err.message;
+    box.innerHTML = `<span class="disc-empty">获取失败：${escapeHTML(err.message)}</span>`;
   }
+}
+
+function xhsToAnalyze() {
+  const text = $("xhs-result").textContent.trim();
+  if (!text) return;
+  $("analyze-input").value = text;
+  switchView("research");
+  switchResearchTab("analyze");
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function switchView(view) {
@@ -1285,11 +1362,17 @@ function switchView(view) {
   document.querySelectorAll(".view").forEach((v) => {
     v.classList.toggle("active", v.dataset.view === view);
   });
+  if (view === "discover") loadXhsStatus().catch(() => {});
 }
 
 document.querySelectorAll(".nav-item[data-view]").forEach((btn) => {
   btn.onclick = () => switchView(btn.dataset.view);
 });
+document.querySelectorAll(".dtab").forEach((btn) => {
+  btn.onclick = () => switchDiscoverTab(btn.dataset.dtab);
+});
+$("disc-inspire-btn").onclick = discInspire;
+$("xhs-to-analyze").onclick = xhsToAnalyze;
 
 document.querySelectorAll(".research-tab").forEach((btn) => {
   btn.onclick = () => switchResearchTab(btn.dataset.tab);

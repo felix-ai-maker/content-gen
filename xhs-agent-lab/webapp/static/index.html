@@ -19,6 +19,7 @@
 
       <nav class="nav">
         <button type="button" class="nav-item active" data-view="create"><span class="nav-ico">🛠️</span><span>工作台</span></button>
+        <button type="button" class="nav-item" data-view="discover"><span class="nav-ico">🔍</span><span>灵感发现</span></button>
         <button type="button" class="nav-item" data-view="research"><span class="nav-ico">🔥</span><span>爆款研究</span></button>
       </nav>
 
@@ -165,6 +166,41 @@
         </section>
       </div>
 
+      <!-- ===== 视图：灵感发现 ===== -->
+      <div class="view" data-view="discover">
+        <div class="view-head">
+          <h1 class="view-title">🔍 灵感发现</h1>
+          <p class="view-sub">搜真实小红书爆款找参考，或让 AI 搜灵感给选题——发现后一键去拆传播力 / 创作。</p>
+        </div>
+        <section class="panel research">
+          <div class="research-tabs">
+            <button type="button" class="dtab active" data-dtab="xhs">搜真实爆款</button>
+            <button type="button" class="dtab" data-dtab="ai">AI 搜灵感</button>
+          </div>
+
+          <div id="dpane-xhs" class="research-pane">
+            <div id="xhs-status" class="xhs-status">检测小红书服务状态…</div>
+            <div class="xhs-search-row">
+              <input id="xhs-keyword" type="text" placeholder="搜关键词，例如：交易复盘 / 读书笔记 / 自律" />
+              <button id="xhs-search-btn" type="button" class="primary">搜索</button>
+              <button id="xhs-login-btn" type="button" class="mini subtle">登录二维码</button>
+            </div>
+            <div id="xhs-qr" class="xhs-qr"></div>
+            <pre id="xhs-result" class="research-result"></pre>
+            <button id="xhs-to-analyze" type="button" class="mini subtle hidden">把结果贴去「拆传播力」拆解 →</button>
+          </div>
+
+          <div id="dpane-ai" class="research-pane hidden">
+            <p class="research-note">输入方向 / 关键词，AI 给你可发布的选题候选 + 素材草稿（零风险、不登录）。</p>
+            <div class="xhs-search-row">
+              <input id="disc-direction" type="text" placeholder="方向 / 关键词，例如：交易复盘、读书笔记、减少冲动" />
+              <button id="disc-inspire-btn" type="button" class="primary">搜灵感</button>
+            </div>
+            <div id="disc-inspire-result" class="disc-inspire"></div>
+          </div>
+        </section>
+      </div>
+
       <!-- ===== 视图：爆款研究 ===== -->
       <div class="view" data-view="research">
         <div class="view-head">
@@ -175,7 +211,6 @@
           <div class="research-tabs">
             <button type="button" class="research-tab active" data-tab="analyze">拆传播力</button>
             <button type="button" class="research-tab" data-tab="playbook">招式库</button>
-            <button type="button" class="research-tab" data-tab="search">搜索爆款</button>
           </div>
 
           <div id="tab-analyze" class="research-pane">
@@ -214,16 +249,6 @@
             </div>
           </div>
 
-          <div id="tab-search" class="research-pane hidden">
-            <p class="research-note">📌 正规推荐：小红书没有公开的"搜爆款"接口，建议从 App 的<strong>「热点榜 / 笔记灵感」</strong>手动挑爆款，贴到左边「拆解爆款」学规律——零风险。下面的自动搜索依赖<strong>非官方工具 + 登录你的账号</strong>，有限流/封号风险，属可选高级项。</p>
-            <div id="xhs-status" class="xhs-status">检测小红书服务状态…</div>
-            <div class="xhs-search-row">
-              <input id="xhs-keyword" type="text" placeholder="搜关键词，例如：交易复盘 / 读书笔记" />
-              <button id="xhs-search-btn" type="button" class="primary">搜索</button>
-              <button id="xhs-login-btn" type="button" class="mini subtle">获取登录二维码</button>
-            </div>
-            <pre id="xhs-result" class="research-result"></pre>
-          </div>
         </section>
       </div>
 
