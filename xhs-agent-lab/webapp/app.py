@@ -12,6 +12,7 @@ import re
 import subprocess
 import threading
 import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -21,7 +22,7 @@ from creative_director import _post_chat
 
 from dotenv import dotenv_values, set_key, unset_key
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -418,6 +419,46 @@ class XhsSearchRequest(BaseModel):
     keyword: str
 
 
+def _mcp_text_json(raw: str):
+    """mcp-call 的 content[].text 是一段 JSON 字符串，解析成对象。"""
+    for part in _mcp_content(raw):
+        if part.get("type") == "text":
+            try:
+                return json.loads(part.get("text", ""))
+            except ValueError:
+                return None
+    return None
+
+
+def _parse_xhs_search(raw: str) -> list[dict]:
+    data = _mcp_text_json(raw)
+    feeds = data.get("feeds") if isinstance(data, dict) else None
+    if not isinstance(feeds, list):
+        return []
+    notes = []
+    for feed in feeds:
+        if not isinstance(feed, dict):
+            continue
+        nc = feed.get("noteCard") or {}
+        user = nc.get("user") or {}
+        inter = nc.get("interactInfo") or {}
+        cover = nc.get("cover") or {}
+        notes.append(
+            {
+                "id": feed.get("id", ""),
+                "xsec_token": feed.get("xsecToken", ""),
+                "title": nc.get("displayTitle", "") or "（无标题）",
+                "author": user.get("nickname") or user.get("nickName", ""),
+                "avatar": user.get("avatar", ""),
+                "cover": cover.get("urlDefault") or cover.get("urlPre", ""),
+                "liked": str(inter.get("likedCount", "")),
+                "collected": str(inter.get("collectedCount", "")),
+                "comment": str(inter.get("commentCount", "")),
+            }
+        )
+    return notes
+
+
 @app.post("/api/xhs/search")
 def api_xhs_search(req: XhsSearchRequest) -> dict:
     keyword = (req.keyword or "").strip()
@@ -428,7 +469,47 @@ def api_xhs_search(req: XhsSearchRequest) -> dict:
     res = _run_xhs("search.sh", keyword, timeout=60)
     if not res["ok"]:
         raise HTTPException(status_code=502, detail=res["error"] or res["output"] or "搜索失败，确认 MCP 已启动并登录。")
-    return {"keyword": keyword, "output": res["output"]}
+    return {"keyword": keyword, "notes": _parse_xhs_search(res["output"]), "output": res["output"]}
+
+
+class XhsFeedRequest(BaseModel):
+    feed_id: str
+    xsec_token: str = ""
+
+
+@app.post("/api/xhs/feed")
+def api_xhs_feed(req: XhsFeedRequest) -> dict:
+    """取一篇笔记正文，供「拆传播力」使用。"""
+    if not req.feed_id:
+        raise HTTPException(status_code=400, detail="缺少 feed_id。")
+    if not _mcp_running():
+        raise HTTPException(status_code=503, detail="MCP 未启动。")
+    args = json.dumps({"feed_id": req.feed_id, "xsec_token": req.xsec_token}, ensure_ascii=False)
+    res = _run_xhs("mcp-call.sh", "get_feed_detail", args, timeout=60)
+    data = _mcp_text_json(res["output"])
+    text = ""
+    if isinstance(data, dict):
+        nc = data.get("noteCard") or data.get("note") or data
+        if isinstance(nc, dict):
+            title = str(nc.get("title") or nc.get("displayTitle") or "").strip()
+            desc = str(nc.get("desc") or nc.get("content") or "").strip()
+            text = (title + "\n\n" + desc).strip()
+    return {"text": text or res["output"]}
+
+
+@app.get("/api/xhs/img")
+def api_xhs_img(u: str) -> Response:
+    """小红书图片代理：图片有防盗链（直连 403），后端带 Referer 取回。"""
+    if not u.startswith("http") or "xhscdn.com" not in u:
+        raise HTTPException(status_code=400, detail="只允许小红书图片域名。")
+    try:
+        request = urllib.request.Request(
+            u, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.xiaohongshu.com/"}
+        )
+        with urllib.request.urlopen(request, timeout=15) as resp:
+            return Response(content=resp.read(), media_type=resp.headers.get("Content-Type", "image/jpeg"))
+    except Exception as exc:  # noqa: BLE001 - 图片取不到不致命
+        raise HTTPException(status_code=502, detail=f"图片获取失败：{exc}") from exc
 
 
 def _mcp_content(raw: str) -> list[dict]:

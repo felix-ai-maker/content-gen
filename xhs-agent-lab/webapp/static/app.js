@@ -1303,26 +1303,77 @@ async function loadXhsStatus() {
   }
 }
 
+function _coverProxy(url) {
+  // 小红书图片有防盗链，直连常 403；交给后端图片代理。
+  return url ? `/api/xhs/img?u=${encodeURIComponent(url)}` : "";
+}
+
 async function xhsSearch() {
   const keyword = $("xhs-keyword").value.trim();
+  const box = $("xhs-result");
   if (!keyword) {
-    $("xhs-result").textContent = "先输入关键词。";
+    box.innerHTML = `<div class="disc-empty">先输入关键词。</div>`;
     return;
   }
   $("xhs-search-btn").disabled = true;
-  $("xhs-result").textContent = `搜索「${keyword}」…`;
+  box.innerHTML = `<div class="disc-empty">搜索「${escapeHTML(keyword)}」…</div>`;
   try {
     const data = await fetchJson("/api/xhs/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ keyword }),
     });
-    $("xhs-result").textContent = data.output || "（无结果）";
-    $("xhs-to-analyze").classList.toggle("hidden", !data.output);
+    const notes = data.notes || [];
+    if (!notes.length) {
+      box.innerHTML = `<div class="disc-empty">没解析出笔记。原始返回：</div><pre class="research-result">${escapeHTML((data.output || "").slice(0, 1500))}</pre>`;
+      return;
+    }
+    box.innerHTML = notes
+      .map(
+        (n, i) => `
+      <div class="xhs-card" data-i="${i}">
+        ${n.cover ? `<img class="xhs-cover" loading="lazy" alt="" src="${_coverProxy(n.cover)}" />` : `<div class="xhs-cover xhs-nocover">无封面</div>`}
+        <div class="xhs-card-body">
+          <strong>${escapeHTML(n.title)}</strong>
+          <span class="xhs-author">@${escapeHTML(n.author || "")}</span>
+          <span class="xhs-metrics">❤ ${escapeHTML(n.liked)} · ⭐ ${escapeHTML(n.collected)} · 💬 ${escapeHTML(n.comment)}</span>
+          <button type="button" class="mini primary xhs-teardown" data-id="${escapeHTML(n.id)}" data-token="${escapeHTML(n.xsec_token)}" data-title="${escapeHTML(n.title)}">拆传播力</button>
+        </div>
+      </div>`
+      )
+      .join("");
+    box.querySelectorAll(".xhs-teardown").forEach((btn) => {
+      btn.onclick = () => xhsTeardown(btn);
+    });
   } catch (err) {
-    $("xhs-result").textContent = "搜索失败：" + err.message;
+    box.innerHTML = `<div class="disc-empty">搜索失败：${escapeHTML(err.message)}</div>`;
   } finally {
     $("xhs-search-btn").disabled = false;
+  }
+}
+
+async function xhsTeardown(btn) {
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "取正文…";
+  try {
+    const data = await fetchJson("/api/xhs/feed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feed_id: btn.dataset.id, xsec_token: btn.dataset.token }),
+    });
+    const text = (data.text || "").trim() || btn.dataset.title;
+    $("analyze-input").value = text;
+    switchView("research");
+    switchResearchTab("analyze");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    analyzeNote();
+  } catch (err) {
+    btn.textContent = "失败";
+    setTimeout(() => (btn.textContent = orig), 1500);
+  } finally {
+    btn.disabled = false;
+    if (btn.textContent === "取正文…") btn.textContent = orig;
   }
 }
 
@@ -1333,7 +1384,7 @@ async function xhsLoginQr() {
     const data = await fetchJson("/api/xhs/login-qr", { method: "POST" });
     if (data.qr_image) {
       box.innerHTML = `<img class="xhs-qr-img" alt="登录二维码" src="${data.qr_image}" /><div class="disc-empty">${escapeHTML(data.text || "用小红书 App 扫码登录")}</div>`;
-      setTimeout(() => loadXhsStatus().catch(() => {}), 4000);
+      pollLoginStatus();
     } else {
       box.innerHTML = `<pre class="research-result">${escapeHTML(data.text || "（无返回，确认 MCP 已启动）")}</pre>`;
     }
@@ -1342,13 +1393,26 @@ async function xhsLoginQr() {
   }
 }
 
-function xhsToAnalyze() {
-  const text = $("xhs-result").textContent.trim();
-  if (!text) return;
-  $("analyze-input").value = text;
-  switchView("research");
-  switchResearchTab("analyze");
-  window.scrollTo({ top: 0, behavior: "smooth" });
+let loginPollTimer = null;
+function pollLoginStatus() {
+  if (loginPollTimer) clearInterval(loginPollTimer);
+  let tries = 0;
+  loginPollTimer = setInterval(async () => {
+    tries += 1;
+    try {
+      const s = await fetchJson("/api/xhs/status");
+      if (s.logged_in) {
+        clearInterval(loginPollTimer);
+        loginPollTimer = null;
+        $("xhs-qr").innerHTML = `<div class="login-ok">✅ 登录成功！可以搜索了</div>`;
+        loadXhsStatus().catch(() => {});
+      }
+    } catch (_e) {}
+    if (tries >= 40) {
+      clearInterval(loginPollTimer);
+      loginPollTimer = null;
+    }
+  }, 3000);
 }
 
 function switchView(view) {
@@ -1368,7 +1432,6 @@ document.querySelectorAll(".dtab").forEach((btn) => {
   btn.onclick = () => switchDiscoverTab(btn.dataset.dtab);
 });
 $("disc-inspire-btn").onclick = discInspire;
-$("xhs-to-analyze").onclick = xhsToAnalyze;
 
 document.querySelectorAll(".research-tab").forEach((btn) => {
   btn.onclick = () => switchResearchTab(btn.dataset.tab);

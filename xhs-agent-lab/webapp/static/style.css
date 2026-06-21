@@ -792,3 +792,15 @@ button.mini.subtle:hover { background: #e8e1d5; }
 .disc-hook { font-size: 12px; color: #1f4e3d; }
 .disc-use { white-space: nowrap; flex-shrink: 0; }
 .disc-empty { color: #9a8f7d; font-size: 13px; }
+
+/* 灵感发现：真实笔记结果卡片 */
+.xhs-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin-top: 14px; }
+.xhs-card { background: #fff; border: 1px solid #e4ded2; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.xhs-cover { width: 100%; aspect-ratio: 3/4; object-fit: cover; background: #f1eee7; display: block; }
+.xhs-nocover { display: flex; align-items: center; justify-content: center; color: #b3aa98; font-size: 13px; }
+.xhs-card-body { padding: 10px 11px; display: flex; flex-direction: column; gap: 5px; }
+.xhs-card-body strong { font-size: 13px; line-height: 1.4; color: #2b2820; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.xhs-author { font-size: 12px; color: #6f685c; }
+.xhs-metrics { font-size: 12px; color: #9a8f7d; }
+.xhs-teardown { margin-top: 4px; }
+.login-ok { color: #1f4e3d; font-weight: 600; font-size: 15px; padding: 14px; }
