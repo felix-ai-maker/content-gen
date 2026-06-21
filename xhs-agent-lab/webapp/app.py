@@ -408,7 +408,7 @@ def api_xhs_status() -> dict:
         return {"installed": False, "running": False, "logged_in": False, "message": "未安装 openclaw-xhs skill。"}
     if not _mcp_running():
         return {"installed": True, "running": False, "logged_in": False, "message": f"MCP 服务（端口 {_mcp_port()}）未监听。"}
-    res = _run_xhs("status.sh", timeout=15)
+    res = _run_xhs("status.sh", timeout=25)
     text = res["output"] + res["error"]
     logged_in = res["ok"] and ("已登录" in text or '"true"' in text.lower() or "logged_in" in text.lower())
     return {"installed": True, "running": True, "logged_in": logged_in, "message": res["output"] or res["error"]}
@@ -431,10 +431,28 @@ def api_xhs_search(req: XhsSearchRequest) -> dict:
     return {"keyword": keyword, "output": res["output"]}
 
 
+def _mcp_content(raw: str) -> list[dict]:
+    """从 mcp-call.sh 的 JSON-RPC 输出抽出 result.content 列表。"""
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return []
+    content = ((data or {}).get("result") or {}).get("content")
+    return content if isinstance(content, list) else []
+
+
 @app.post("/api/xhs/login-qr")
 def api_xhs_login_qr() -> dict:
-    res = _run_xhs("mcp-call.sh", "get_login_qrcode", timeout=30)
-    return {"ok": res["ok"], "output": res["output"] or res["error"]}
+    if not _mcp_running():
+        raise HTTPException(status_code=503, detail=f"MCP 服务（端口 {_mcp_port()}）未启动。")
+    res = _run_xhs("mcp-call.sh", "get_login_qrcode", timeout=60)
+    text, qr_image = "", ""
+    for part in _mcp_content(res["output"]):
+        if part.get("type") == "text":
+            text = part.get("text", "")
+        elif part.get("type") == "image" and part.get("data"):
+            qr_image = f"data:{part.get('mimeType', 'image/png')};base64,{part['data']}"
+    return {"ok": bool(qr_image) or res["ok"], "text": text or res["error"] or res["output"], "qr_image": qr_image}
 
 
 def _initial_progress(message: str = "等待开始…") -> dict:

@@ -1328,18 +1328,14 @@ async function xhsSearch() {
 
 async function xhsLoginQr() {
   const box = $("xhs-qr");
-  box.innerHTML = `<span class="disc-empty">获取登录二维码…</span>`;
+  box.innerHTML = `<span class="disc-empty">获取登录二维码…（首次拉起浏览器稍慢）</span>`;
   try {
     const data = await fetchJson("/api/xhs/login-qr", { method: "POST" });
-    const out = (data.output || "").trim();
-    const url = (out.match(/https?:\/\/\S+/) || [])[0];
-    if (out.startsWith("data:image") || /^[A-Za-z0-9+/=\s]{120,}$/.test(out)) {
-      const src = out.startsWith("data:image") ? out : "data:image/png;base64," + out.replace(/\s+/g, "");
-      box.innerHTML = `<img class="xhs-qr-img" alt="登录二维码" src="${src}" /><div class="disc-empty">用小红书 App 扫码登录</div>`;
-    } else if (url) {
-      box.innerHTML = `<div class="disc-empty">用小红书 App 扫这个链接的二维码：</div><a href="${escapeHTML(url)}" target="_blank">${escapeHTML(url)}</a>`;
+    if (data.qr_image) {
+      box.innerHTML = `<img class="xhs-qr-img" alt="登录二维码" src="${data.qr_image}" /><div class="disc-empty">${escapeHTML(data.text || "用小红书 App 扫码登录")}</div>`;
+      setTimeout(() => loadXhsStatus().catch(() => {}), 4000);
     } else {
-      box.innerHTML = `<pre class="research-result">${escapeHTML(out || "（无返回，确认 MCP 已启动）")}</pre>`;
+      box.innerHTML = `<pre class="research-result">${escapeHTML(data.text || "（无返回，确认 MCP 已启动）")}</pre>`;
     }
   } catch (err) {
     box.innerHTML = `<span class="disc-empty">获取失败：${escapeHTML(err.message)}</span>`;
