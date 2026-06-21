@@ -615,6 +615,9 @@ function applyInputsToForm(inp) {
   setSelectValue("style", inp.style || "", "");
   setSelectValue("mode", inp.mode || "local", "local");
   $("extra").value = inp.extra_brief || "";
+  $("inspire-direction").value = inp.direction || "";
+  setSelectValue("playbook", inp.playbook || "", "");
+  setSelectValue("variant-playbook", inp.playbook || "", "");
   $("push").checked = Boolean(inp.push);
 }
 
@@ -1209,7 +1212,7 @@ async function loadPlaybookOptions() {
   const opts = (data.playbooks || [])
     .map((p) => `<option value="${escapeHTML(p.id)}">${escapeHTML(p.name)}</option>`)
     .join("");
-  ["playbook", "distill-target"].forEach((id) => {
+  ["playbook", "distill-target", "variant-playbook"].forEach((id) => {
     const sel = $(id);
     if (sel) {
       sel.innerHTML = opts;
@@ -1303,6 +1306,15 @@ $("pb-setactive").onclick = setActivePlaybook;
 $("pb-name").oninput = applyPbMeta;
 $("pb-desc").oninput = applyPbMeta;
 $("hist-refresh").onclick = () => loadHistory().catch(() => {});
+$("variant-gen").onclick = () => {
+  if (!$("topic").value.trim()) {
+    $("status").textContent = "先打开一个发布包或填选题，再换打法出一版。";
+    return;
+  }
+  $("playbook").value = $("variant-playbook").value;
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  generate();
+};
 $("xhs-search-btn").onclick = xhsSearch;
 $("xhs-login-btn").onclick = xhsLoginQr;
 

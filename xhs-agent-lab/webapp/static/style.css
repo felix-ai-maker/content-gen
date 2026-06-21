@@ -761,3 +761,13 @@ button.mini.subtle:hover { background: #e8e1d5; }
 }
 .hist-sub { font-size: 11px; color: #9a8f7d; }
 .hist-empty { color: #9a8f7d; font-size: 13px; }
+
+/* A/B 换打法再出一版 */
+.variant-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 10px 0 4px; padding: 10px 12px;
+  background: #f7f4ed; border: 1px dashed #d8cfbd; border-radius: 10px;
+  font-size: 13px; color: #4a463f;
+}
+.variant-bar select { width: auto; min-width: 150px; margin: 0; padding: 6px 9px; font-size: 13px; }
+.variant-note { color: #9a8f7d; font-size: 12px; }
