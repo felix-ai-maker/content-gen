@@ -1362,18 +1362,23 @@ async function xhsTeardown(btn) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ feed_id: btn.dataset.id, xsec_token: btn.dataset.token }),
     });
-    const text = (data.text || "").trim() || btn.dataset.title;
+    const text = (data.text || "").trim();
+    if (!text) throw new Error("没取到正文");
     $("analyze-input").value = text;
     switchView("research");
     switchResearchTab("analyze");
     window.scrollTo({ top: 0, behavior: "smooth" });
     analyzeNote();
+    btn.textContent = orig;
   } catch (err) {
-    btn.textContent = "失败";
-    setTimeout(() => (btn.textContent = orig), 1500);
+    btn.textContent = "打不开";
+    btn.title = err.message || "";
+    setTimeout(() => {
+      btn.textContent = orig;
+      btn.title = "";
+    }, 2500);
   } finally {
     btn.disabled = false;
-    if (btn.textContent === "取正文…") btn.textContent = orig;
   }
 }
 

@@ -489,12 +489,17 @@ def api_xhs_feed(req: XhsFeedRequest) -> dict:
     data = _mcp_text_json(res["output"])
     text = ""
     if isinstance(data, dict):
-        nc = data.get("noteCard") or data.get("note") or data
-        if isinstance(nc, dict):
-            title = str(nc.get("title") or nc.get("displayTitle") or "").strip()
-            desc = str(nc.get("desc") or nc.get("content") or "").strip()
+        note = (data.get("data") or {}).get("note") or data.get("noteCard") or data.get("note") or {}
+        if isinstance(note, dict):
+            title = str(note.get("title") or note.get("displayTitle") or "").strip()
+            desc = str(note.get("desc") or note.get("content") or "").strip()
             text = (title + "\n\n" + desc).strip()
-    return {"text": text or res["output"]}
+    if not text:
+        raw = res["output"] or ""
+        if any(k in raw for k in ("不可访问", "Available Right Now", "扫码查看", "失败")):
+            raise HTTPException(status_code=422, detail="这篇笔记打不开（可能已删 / 私密 / 被风控），换一篇试试。")
+        raise HTTPException(status_code=502, detail="没取到正文。")
+    return {"text": text}
 
 
 @app.get("/api/xhs/img")
