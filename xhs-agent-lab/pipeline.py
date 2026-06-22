@@ -21,7 +21,7 @@ from copy_pipeline import (
     read_copy_input,
     run_quality_checks,
 )
-from copy_writer import compose_body, generate_cards
+from copy_writer import compose_body, generate_cards, humanize_text
 from direct_card_renderer import DirectCardRenderer
 from style_director import apply_style_plan
 
@@ -662,6 +662,7 @@ def generate_package(
     extra_brief: str = "",
     playbook: str = "",
     direction: str = "",
+    humanize: bool = False,
     push: bool = True,
     config: dict | None = None,
     config_path: Path | None = None,
@@ -726,6 +727,14 @@ def generate_package(
             )
             xhs_post, wechat_article = body_future.result()
         emit_progress(progress, stage="style", percent=26, message="风格、创意与正文完成。", done=0, total=len(cards))
+
+    if humanize:
+        log("正在去 AI 味…")
+        emit_progress(progress, stage="copy", percent=27, message="正在去 AI 味…", done=0, total=len(cards))
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            fx = executor.submit(humanize_text, xhs_post, config)
+            fw = executor.submit(humanize_text, wechat_article, config)
+            xhs_post, wechat_article = fx.result(), fw.result()
 
     timezone = config.get("timezone", "Asia/Shanghai")
     output_dir = make_output_dir(project_root, topic, timezone)
@@ -819,6 +828,7 @@ def generate_package(
         "extra_brief": extra_brief or "",
         "playbook": playbook or "",
         "direction": direction or "",
+        "humanize": bool(humanize),
         "push": bool(push),
     }
     write_json(output_dir / "inputs.json", inputs)

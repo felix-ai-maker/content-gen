@@ -622,6 +622,7 @@ function applyInputsToForm(inp) {
   $("inspire-direction").value = inp.direction || "";
   setSelectValue("playbook", inp.playbook || "", "");
   setSelectValue("variant-playbook", inp.playbook || "", "");
+  $("humanize").checked = Boolean(inp.humanize);
   $("push").checked = Boolean(inp.push);
 }
 
@@ -690,6 +691,50 @@ async function saveDoc(kind) {
       saveButton.textContent = originalText;
     }
     if (editButton) editButton.disabled = false;
+  }
+}
+
+async function humanizeDoc(kind) {
+  if (!currentPackage) {
+    $("status").textContent = "先打开一个发布包。";
+    return;
+  }
+  const btn = docButton(kind, "doc-humanize");
+  const text = $(kind).textContent.trim();
+  if (text.length < 10) return;
+  const orig = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "去味中…";
+  }
+  $("status").textContent = "正在去 AI 味…";
+  try {
+    const h = await fetchJson("/api/humanize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const result = await fetchJson(`/api/packages/${encodeURIComponent(currentPackage)}/docs`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [kind]: h.text }),
+    });
+    $("xhs").textContent = result.xhs || $("xhs").textContent;
+    $("wechat").textContent = result.wechat || $("wechat").textContent;
+    renderReview(result.review);
+    if (activeResult && activeResult.package_name === currentPackage) {
+      activeResult = { ...activeResult, xhs_md: result.xhs, wechat_md: result.wechat, review: result.review };
+    }
+    $("status").textContent = "已去 AI 味并保存。";
+    if (btn) btn.textContent = "✅ 已去味";
+    setTimeout(() => {
+      if (btn) btn.textContent = orig;
+    }, 1800);
+  } catch (err) {
+    $("status").textContent = "去 AI 味失败：" + err.message;
+    if (btn) btn.textContent = orig;
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -796,6 +841,7 @@ async function generate() {
     extra_brief: $("extra").value,
     playbook: $("playbook").value,
     direction: $("inspire-direction").value,
+    humanize: $("humanize").checked,
     push: $("push").checked,
   };
   try {
@@ -852,6 +898,9 @@ document.querySelectorAll(".doc-save").forEach((button) => {
 });
 document.querySelectorAll(".doc-cancel").forEach((button) => {
   button.onclick = () => setDocEditMode(button.dataset.kind, false, { discard: true });
+});
+document.querySelectorAll(".doc-humanize").forEach((button) => {
+  button.onclick = () => humanizeDoc(button.dataset.kind);
 });
 
 $("push-now").onclick = async () => {

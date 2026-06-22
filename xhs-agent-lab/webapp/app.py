@@ -205,6 +205,22 @@ def _llm_for(config: dict) -> tuple[dict, str]:
     return llm, api_key
 
 
+class HumanizeRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/humanize")
+def api_humanize(req: HumanizeRequest) -> dict:
+    """按 humanizer-zh 框架把文本去 AI 味。"""
+    from copy_writer import humanize_text
+
+    text = (req.text or "").strip()
+    if len(text) < 10:
+        raise HTTPException(status_code=400, detail="没有可处理的文本。")
+    _llm_for(_config())  # 校验 key，无 key 时给明确指引
+    return {"text": humanize_text(text, _config())}
+
+
 class AnalyzeRequest(BaseModel):
     text: str
 
@@ -569,6 +585,7 @@ class GenerateRequest(BaseModel):
     extra_brief: str = ""
     playbook: str = ""
     direction: str = ""  # 灵感关键词/方向，锚定生成不偏题
+    humanize: bool = False  # 生成后自动去 AI 味
     push: bool = False
 
 
@@ -878,6 +895,7 @@ def api_generate(req: GenerateRequest) -> dict:
         "extra_brief": req.extra_brief,
         "playbook": req.playbook,
         "direction": req.direction,
+        "humanize": req.humanize,
         "push": req.push,
     }
     threading.Thread(target=_run_task, args=(task_id, params), daemon=True).start()

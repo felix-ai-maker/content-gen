@@ -225,6 +225,8 @@ def generate_cards(topic: str, copy_text: str, config: dict, brand: str) -> list
         "]\n"
         "要求：每张内容页 bullets 给 2-3 条；标题彼此不要重复；语言具体、有个人表达。\n\n"
         + _playbook(config)
+        + "\n\n"
+        + _HUMANIZE_RULES
         + "\n\n不要输出 JSON 以外的任何内容。"
     )
     try:
@@ -290,6 +292,8 @@ def _generate_body_via_llm(topic: str, cards: list[dict], config: dict, copy_tex
         "避免只堆强金融词导致限流。\n"
         + "如果选题涉及交易/投资/收益，两份正文都要包含一句「不构成投资建议」，并保留风险/边界意识，不写收益承诺。\n\n"
         + _playbook(config)
+        + "\n\n"
+        + _HUMANIZE_RULES
         + "\n\n不要输出 JSON 以外的任何内容。"
     )
     try:
@@ -327,3 +331,61 @@ def compose_body(
         topic=topic, cards=cards, config=config, cards_source=cards_source, copy_text=copy_text
     )
     return xhs_post, wechat_article
+
+
+# --------------------------------------------------------------------------- #
+# 去 AI 味（humanizer-zh skill）：读 skill 框架做重写 pass；缺失时用内置精简版。
+# --------------------------------------------------------------------------- #
+_HUMANIZER_PATH = Path(__file__).resolve().parent.parent / ".agents" / "skills" / "humanizer-zh" / "SKILL.md"
+_HUMANIZER_CACHE: dict = {}
+
+# 注入生成 prompt 的精华版（让初稿就少 AI 味），不放整份 skill 以免 prompt 过长。
+_HUMANIZE_RULES = (
+    "【去 AI 味，务必遵守】"
+    "1) 少用套话与宣传腔：不用“不仅…而是”“标志着/见证了/彰显/体现了”“赋能/深度/全方位”这类词；"
+    "2) 打破公式结构：别用三段式排比、别破折号堆砌、别每段都“先抑后扬”；"
+    "3) 句子长短交错，别每句一样长；两项often优于三项；"
+    "4) 直接陈述、信任读者，少软化、少“首先其次最后”式手把手；"
+    "5) 有观点、有第一人称、允许一点不完美和题外话，别像新闻稿或维基百科。"
+)
+
+
+def _humanizer_framework() -> str:
+    try:
+        mtime = _HUMANIZER_PATH.stat().st_mtime
+    except OSError:
+        return _HUMANIZE_RULES
+    if _HUMANIZER_CACHE.get("mtime") != mtime:
+        _HUMANIZER_CACHE["mtime"] = mtime
+        _HUMANIZER_CACHE["text"] = _HUMANIZER_PATH.read_text(encoding="utf-8").strip()
+    return _HUMANIZER_CACHE.get("text") or _HUMANIZE_RULES
+
+
+def humanize_text(text: str, config: dict) -> str:
+    """按 humanizer-zh 框架把文本改得更像真人写的。失败/无 key 回退 remove_ai_smell。"""
+    from copy_pipeline import remove_ai_smell
+
+    text = (text or "").strip()
+    if not text:
+        return text
+    cfg = _resolve_copy_llm(config)
+    if not _llm_ready(cfg):
+        return remove_ai_smell(text)
+    system = (
+        "你是资深中文文字编辑，专门去除 AI 写作痕迹、让文字更像真人写的。"
+        "严格保留原意、信息点和 Markdown 结构（# 标题、列表、空行、#话题标签都原样保留），只改文字表达。"
+        "不要加解释、不要加前后缀，直接输出润色后的完整文本。"
+    )
+    user = f"{_humanizer_framework()}\n\n【待去 AI 味的文本】\n{text}\n\n请按上面的指南重写，直接输出完整结果。"
+    try:
+        out = _chat(cfg, [{"role": "system", "content": system}, {"role": "user", "content": user}])
+    except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as exc:
+        print(f"[humanize] 调用失败，回退 remove_ai_smell：{exc}")
+        return remove_ai_smell(text)
+    out = (out or "").strip()
+    # 去掉模型偶尔加的代码围栏
+    if out.startswith("```"):
+        out = out.strip("`")
+        if out.lower().startswith("markdown"):
+            out = out[8:]
+    return out.strip() or remove_ai_smell(text)

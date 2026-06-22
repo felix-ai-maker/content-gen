@@ -77,6 +77,7 @@
             <label>额外创意指令（可选，调提示词优化画面）
               <textarea id="extra" rows="2" placeholder="例如：多一点手绘质感、主视觉用暖光、构图更大胆…"></textarea>
             </label>
+            <label class="row"><input id="humanize" type="checkbox" /> ✨ 生成后自动去 AI 味（更像真人写，稍慢）</label>
             <label class="row"><input id="push" type="checkbox" /> 生成后推送到 Telegram</label>
             <button id="gen">开始生成</button>
           </section>
@@ -130,6 +131,7 @@
                   <div class="doc-head">
                     <span>📕 小红书正文</span>
                     <div class="doc-actions">
+                      <button data-kind="xhs" class="doc-humanize mini">✨ 去AI味</button>
                       <button data-target="xhs" class="copy">复制</button>
                       <button data-kind="xhs" class="doc-edit mini">编辑</button>
                       <button data-kind="xhs" class="doc-save mini primary hidden">保存</button>
@@ -143,6 +145,7 @@
                   <div class="doc-head">
                     <span>📰 公众号文章</span>
                     <div class="doc-actions">
+                      <button data-kind="wechat" class="doc-humanize mini">✨ 去AI味</button>
                       <button data-target="wechat" class="copy">复制</button>
                       <button data-kind="wechat" class="doc-edit mini">编辑</button>
                       <button data-kind="wechat" class="doc-save mini primary hidden">保存</button>
