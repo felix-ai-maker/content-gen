@@ -221,6 +221,67 @@ def api_humanize(req: HumanizeRequest) -> dict:
     return {"text": humanize_text(text, _config())}
 
 
+# --------------------------------------------------------------------------- #
+# 起号计划：定位 → 阶段化计划 + 选题库（plan.json）。
+# --------------------------------------------------------------------------- #
+PLAN_PATH = PROJECT_ROOT / "plan.json"
+
+
+def _load_plan() -> dict:
+    if PLAN_PATH.exists():
+        try:
+            data = json.loads(PLAN_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except ValueError:
+            pass
+    return {}
+
+
+def _save_plan(data: dict) -> None:
+    PLAN_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+class PlanGenerateRequest(BaseModel):
+    domain: str = ""
+    persona: str = ""
+    audience: str = ""
+    goal: str = ""
+
+
+@app.get("/api/plan")
+def api_get_plan() -> dict:
+    return _load_plan()
+
+
+@app.post("/api/plan/generate")
+def api_generate_plan(req: PlanGenerateRequest) -> dict:
+    """按定位生成起号计划 + 选题库，并保存。"""
+    from copy_writer import generate_plan
+
+    _llm_for(_config())  # 校验 key
+    positioning = {"domain": req.domain, "persona": req.persona, "audience": req.audience, "goal": req.goal}
+    plan = generate_plan(positioning, _config())
+    if not plan:
+        raise HTTPException(status_code=502, detail="生成计划失败，稍后重试。")
+    # 合并已有选题状态？起号计划重生成视为重来，直接覆盖。
+    _save_plan(plan)
+    return plan
+
+
+class PlanUpdateRequest(BaseModel):
+    plan: dict
+
+
+@app.put("/api/plan")
+def api_put_plan(req: PlanUpdateRequest) -> dict:
+    """保存编辑后的计划（如选题状态变更）。"""
+    if not isinstance(req.plan, dict):
+        raise HTTPException(status_code=400, detail="计划格式不正确。")
+    _save_plan(req.plan)
+    return _load_plan()
+
+
 class AnalyzeRequest(BaseModel):
     text: str
 

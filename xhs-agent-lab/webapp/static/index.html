@@ -19,6 +19,7 @@
 
       <nav class="nav">
         <button type="button" class="nav-item active" data-view="create"><span class="nav-ico">🛠️</span><span>工作台</span></button>
+        <button type="button" class="nav-item" data-view="plan"><span class="nav-ico">📅</span><span>起号计划</span></button>
         <button type="button" class="nav-item" data-view="discover"><span class="nav-ico">🔍</span><span>灵感发现</span></button>
         <button type="button" class="nav-item" data-view="research"><span class="nav-ico">🔥</span><span>爆款研究</span></button>
       </nav>
@@ -167,6 +168,25 @@
             <button id="hist-refresh" type="button" class="mini subtle">刷新</button>
           </div>
           <div id="history" class="hist-gallery"></div>
+        </section>
+      </div>
+
+      <!-- ===== 视图：起号计划 ===== -->
+      <div class="view" data-view="plan">
+        <div class="view-head">
+          <h1 class="view-title">📅 起号计划</h1>
+          <p class="view-sub">填账号定位，AI 按小红书起号流程出阶段化计划 + 选题库；每条选题一键去工作台生成。</p>
+        </div>
+        <section class="panel">
+          <div class="plan-form">
+            <label>领域 <input id="plan-domain" type="text" placeholder="如：交易系统 / AI 工具 / 个人成长" /></label>
+            <label>人设 <input id="plan-persona" type="text" placeholder="如：独立开发者 + 交易者" /></label>
+            <label>目标人群 <input id="plan-audience" type="text" placeholder="如：想搭自己交易系统的散户 / 想用 AI 提效的人" /></label>
+            <label>起号目标 <input id="plan-goal" type="text" placeholder="如：3 个月 1000 粉、建立垂直人设" /></label>
+            <button id="plan-gen" type="button" class="primary">生成 / 重生成起号计划</button>
+            <span id="plan-msg" class="settings-msg"></span>
+          </div>
+          <div id="plan-body" class="plan-body"></div>
         </section>
       </div>
 

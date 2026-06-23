@@ -1473,6 +1473,128 @@ function pollLoginStatus() {
   }, 3000);
 }
 
+// ===== 起号计划 =====
+let planData = null;
+const PLAN_STATUS = { todo: "⚪ 待写", generated: "🟡 已生成", published: "✅ 已发布" };
+const PLAN_NEXT = { todo: "generated", generated: "published", published: "todo" };
+
+async function loadPlan() {
+  try {
+    const data = await fetchJson("/api/plan");
+    planData = data && (data.stages || data.topics) ? data : null;
+    if (planData && planData.positioning) {
+      $("plan-domain").value = planData.positioning.domain || "";
+      $("plan-persona").value = planData.positioning.persona || "";
+      $("plan-audience").value = planData.positioning.audience || "";
+      $("plan-goal").value = planData.positioning.goal || "";
+    }
+    renderPlan();
+  } catch (_e) {}
+}
+
+async function generatePlan() {
+  $("plan-gen").disabled = true;
+  $("plan-msg").textContent = "AI 生成中…（约十几秒）";
+  try {
+    planData = await fetchJson("/api/plan/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        domain: $("plan-domain").value,
+        persona: $("plan-persona").value,
+        audience: $("plan-audience").value,
+        goal: $("plan-goal").value,
+      }),
+    });
+    $("plan-msg").textContent = "已生成。";
+    renderPlan();
+  } catch (err) {
+    $("plan-msg").textContent = "失败：" + err.message;
+  } finally {
+    $("plan-gen").disabled = false;
+  }
+}
+
+async function savePlan() {
+  if (!planData) return;
+  try {
+    await fetchJson("/api/plan", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan: planData }),
+    });
+  } catch (_e) {}
+}
+
+function renderPlan() {
+  const box = $("plan-body");
+  if (!planData) {
+    box.innerHTML = `<div class="disc-empty">还没有计划。填上面的定位，点「生成起号计划」。</div>`;
+    return;
+  }
+  const stages = (planData.stages || [])
+    .map(
+      (s) => `
+    <div class="plan-stage">
+      <div class="plan-stage-head"><strong>${escapeHTML(s.name)}</strong><span>${escapeHTML(s.cadence || "")}</span></div>
+      <div class="plan-stage-goal">🎯 ${escapeHTML(s.goal || "")}</div>
+      ${s.topic_focus ? `<div class="plan-stage-focus">优先写：${escapeHTML(s.topic_focus)}</div>` : ""}
+      ${(s.actions || []).length ? `<ul class="plan-actions">${s.actions.map((a) => `<li>${escapeHTML(a)}</li>`).join("")}</ul>` : ""}
+    </div>`
+    )
+    .join("");
+
+  const topics = planData.topics || [];
+  const pillars = planData.pillars && planData.pillars.length ? planData.pillars : [...new Set(topics.map((t) => t.pillar))];
+  const done = topics.filter((t) => t.status === "published").length;
+  const groups = pillars
+    .map((p) => {
+      const items = topics.filter((t) => (t.pillar || "") === p);
+      if (!items.length) return "";
+      return `<div class="plan-pillar"><div class="plan-pillar-name">📌 ${escapeHTML(p)}</div>${items.map(planTopicRow).join("")}</div>`;
+    })
+    .join("");
+  const ungrouped = topics.filter((t) => !pillars.includes(t.pillar || ""));
+  const extra = ungrouped.length ? `<div class="plan-pillar"><div class="plan-pillar-name">📌 其它</div>${ungrouped.map(planTopicRow).join("")}</div>` : "";
+
+  box.innerHTML =
+    `<div class="plan-section-title">起号三阶段</div><div class="plan-stages">${stages}</div>` +
+    `<div class="plan-section-title">选题库（${topics.length} 条 · 已发 ${done}）</div>${groups}${extra}`;
+
+  box.querySelectorAll(".plan-status").forEach((el) => {
+    el.onclick = () => {
+      const t = (planData.topics || []).find((x) => x.id === el.dataset.id);
+      if (!t) return;
+      t.status = PLAN_NEXT[t.status] || "todo";
+      renderPlan();
+      savePlan();
+    };
+  });
+  box.querySelectorAll(".plan-gen-topic").forEach((el) => {
+    el.onclick = () => {
+      const t = (planData.topics || []).find((x) => x.id === el.dataset.id);
+      if (!t) return;
+      $("topic").value = t.title;
+      $("inspire-direction").value = t.pillar || t.angle || "";
+      if (t.status === "todo") {
+        t.status = "generated";
+        savePlan();
+      }
+      switchView("create");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      $("status").textContent = "已带入选题，填好其余项点「开始生成」。";
+    };
+  });
+}
+
+function planTopicRow(t) {
+  return `<div class="plan-topic">
+    <button type="button" class="plan-status" data-id="${escapeHTML(t.id)}">${PLAN_STATUS[t.status] || PLAN_STATUS.todo}</button>
+    <div class="plan-topic-body"><strong>${escapeHTML(t.title)}</strong>${t.angle ? `<span>${escapeHTML(t.angle)}</span>` : ""}</div>
+    <button type="button" class="mini primary plan-gen-topic" data-id="${escapeHTML(t.id)}">去生成</button>
+  </div>`;
+}
+
 function switchView(view) {
   document.querySelectorAll(".nav-item[data-view]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === view);
@@ -1481,6 +1603,7 @@ function switchView(view) {
     v.classList.toggle("active", v.dataset.view === view);
   });
   if (view === "discover") loadXhsStatus().catch(() => {});
+  if (view === "plan") loadPlan().catch(() => {});
 }
 
 document.querySelectorAll(".nav-item[data-view]").forEach((btn) => {
@@ -1489,6 +1612,7 @@ document.querySelectorAll(".nav-item[data-view]").forEach((btn) => {
 document.querySelectorAll(".dtab").forEach((btn) => {
   btn.onclick = () => switchDiscoverTab(btn.dataset.dtab);
 });
+$("plan-gen").onclick = generatePlan;
 $("disc-inspire-btn").onclick = discInspire;
 
 document.querySelectorAll(".research-tab").forEach((btn) => {

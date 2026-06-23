@@ -389,3 +389,81 @@ def humanize_text(text: str, config: dict) -> str:
         if out.lower().startswith("markdown"):
             out = out[8:]
     return out.strip() or remove_ai_smell(text)
+
+
+# --------------------------------------------------------------------------- #
+# 起号计划：按定位生成阶段化起号计划 + 选题库。
+# --------------------------------------------------------------------------- #
+def generate_plan(positioning: dict, config: dict) -> dict | None:
+    """按账号定位生成起号计划（阶段 + 内容支柱 + 选题库）。失败/无 key 返回 None。"""
+    import uuid
+
+    cfg = _resolve_copy_llm(config)
+    if not _llm_ready(cfg):
+        return None
+    domain = str(positioning.get("domain", "")).strip()
+    persona = str(positioning.get("persona", "")).strip()
+    audience = str(positioning.get("audience", "")).strip()
+    goal = str(positioning.get("goal", "")).strip()
+    system = (
+        "你是资深小红书起号操盘手，熟悉小红书冷启动/起号的实战打法（垂直定位、内容支柱、"
+        "养号期打基础、起号期测爆款、放大期复制爆款）。为账号定制一份可直接执行的起号计划。"
+    )
+    user = (
+        f"账号定位：\n领域：{domain or '未填'}\n人设：{persona or '未填'}\n"
+        f"目标人群：{audience or '未填'}\n起号目标：{goal or '未填'}\n\n"
+        "请输出一份起号计划。严格只输出一个 JSON 对象：\n"
+        "{\n"
+        '  "pillars": ["内容支柱1","内容支柱2","内容支柱3","内容支柱4"],\n'
+        '  "stages": [\n'
+        '    {"name":"养号期","goal":"本阶段目标","cadence":"发布节奏(如每周3篇)","actions":["关键动作1","关键动作2"],"topic_focus":"这阶段优先写什么"},\n'
+        '    {"name":"起号期", ...},\n'
+        '    {"name":"放大期", ...}\n'
+        "  ],\n"
+        '  "topics": [{"title":"选题标题(<=22字,有钩子)","pillar":"所属内容支柱","angle":"一句切入角度"}]\n'
+        "}\n"
+        "要求：贴合该领域和人设；内容支柱给 3-4 个；选题给 18-24 个、覆盖各支柱、具体可写、有钩子、"
+        "适合起号期建立垂直度，不要泛泛而谈。不要输出 JSON 以外的任何内容。"
+    )
+    try:
+        content = _chat(cfg, [{"role": "system", "content": system}, {"role": "user", "content": user}])
+    except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as exc:
+        print(f"[plan] 生成失败：{exc}")
+        return None
+    data = _extract_json(content, "{", "}")
+    if not isinstance(data, dict):
+        return None
+    pillars = [str(p).strip() for p in (data.get("pillars") or []) if str(p).strip()]
+    stages = []
+    for s in data.get("stages") or []:
+        if not isinstance(s, dict):
+            continue
+        stages.append(
+            {
+                "name": str(s.get("name", "")).strip() or "阶段",
+                "goal": str(s.get("goal", "")).strip(),
+                "cadence": str(s.get("cadence", "")).strip(),
+                "actions": [str(a).strip() for a in (s.get("actions") or []) if str(a).strip()],
+                "topic_focus": str(s.get("topic_focus", "")).strip(),
+            }
+        )
+    topics = []
+    for t in data.get("topics") or []:
+        if not isinstance(t, dict):
+            continue
+        title = str(t.get("title", "")).strip()
+        if not title:
+            continue
+        topics.append(
+            {
+                "id": uuid.uuid4().hex[:10],
+                "title": title,
+                "pillar": str(t.get("pillar", "")).strip(),
+                "angle": str(t.get("angle", "")).strip(),
+                "status": "todo",
+            }
+        )
+    if not stages and not topics:
+        return None
+    return {"positioning": {"domain": domain, "persona": persona, "audience": audience, "goal": goal},
+            "pillars": pillars, "stages": stages, "topics": topics}
