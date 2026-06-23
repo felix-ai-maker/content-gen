@@ -845,7 +845,7 @@ def _ai_inspiration(topic: str, copy_text: str, target: str, direction: str, con
 
 
 PRESET_GROUPS = [
-    ("真实 · 共鸣", ["authentic_moment", "pov_slice", "midnight_mono", "handwritten_journal", "retro_film", "film_photo"]),
+    ("真实 · 共鸣", ["real_workspace", "authentic_moment", "pov_slice", "midnight_mono", "handwritten_journal", "retro_film", "film_photo"]),
     ("编辑 · 知识", ["magazine_editorial", "signature_mono"]),
     ("爆款 · 冲击", ["bold_xhs"]),
     ("美学 · 调性", ["minimal_ins", "warm_editorial", "soft_3d"]),
