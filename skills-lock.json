@@ -1,11 +1,23 @@
 {
   "version": 1,
   "skills": {
+    "brainstorming": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "skillPath": "skills/brainstorming/SKILL.md",
+      "computedHash": "26a8eb33d548f0c4ead9e7bc13a90c3853398d30345c651245a61a12b869f130"
+    },
     "humanizer-zh": {
       "source": "op7418/humanizer-zh",
       "sourceType": "github",
       "skillPath": "SKILL.md",
       "computedHash": "7bd195e3bcdcc24f078dfd4e3b3e37e8ac321c36f410a41241fc4175eab1825a"
+    },
+    "product-brainstorming": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "product-management/skills/product-brainstorming/SKILL.md",
+      "computedHash": "37ee877a45c2dba5a5f68d51bed1593d421ece51db81fcf14f7ffb22ce74710e"
     },
     "xiaohongshu": {
       "source": "zhjiang22/openclaw-xhs",
