@@ -829,3 +829,29 @@ button.mini.subtle:hover { background: #e8e1d5; }
 .plan-topic-body span { font-size: 12px; color: #9a8f7d; }
 .plan-status { background: #f1eee7; color: #4a463f; padding: 4px 9px; font-size: 12px; white-space: nowrap; border-radius: 7px; }
 .plan-gen-topic { white-space: nowrap; }
+
+/* 我的数据 */
+.mypost-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.mypost-form #mp-title { flex: 1; min-width: 180px; margin: 0; }
+.mypost-form input[type=number] { width: 76px; margin: 0; }
+#mp-content { margin-bottom: 8px; }
+.mypost-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.mypost { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid #e4ded2; border-radius: 9px; padding: 9px 12px; }
+.mypost.winner { border-color: #1f4e3d; background: #f1f7f3; }
+.mp-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mp-body strong { font-size: 14px; color: #2b2820; }
+.mp-metrics { font-size: 12px; color: #9a8f7d; }
+
+/* 照片优先 */
+.photo-first { margin-bottom: 18px; }
+.pf-head { display: flex; align-items: center; justify-content: space-between; }
+.pf-head strong { font-size: 14px; color: #1f4e3d; }
+.pf-body.hidden { display: none; }
+.pf-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.pf-upload { display: inline-flex; align-items: center; padding: 9px 14px; background: #f4f1ea; border: 1px dashed #d8cfbd; border-radius: 8px; cursor: pointer; font-size: 13px; margin: 0; white-space: nowrap; }
+.pf-row #pf-scene { flex: 1; min-width: 200px; margin: 0; }
+.pf-output { display: flex; gap: 14px; align-items: flex-start; }
+.pf-preview { flex: 0 0 auto; }
+.pf-img { width: 160px; border-radius: 10px; border: 1px solid #e4ded2; display: block; }
+.pf-caption-wrap { flex: 1; min-width: 0; }
+.pf-caption-wrap .research-result:empty { display: none; }

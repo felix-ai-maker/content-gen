@@ -467,3 +467,41 @@ def generate_plan(positioning: dict, config: dict) -> dict | None:
         return None
     return {"positioning": {"domain": domain, "persona": persona, "audience": audience, "goal": goal},
             "pillars": pillars, "stages": stages, "topics": topics}
+
+
+def generate_photo_caption(scene: str, config: dict) -> str | None:
+    """围绕一张真实照片（用户自己发原图）写一段小红书 build-in-public 文案。失败返回 None。"""
+    from copy_pipeline import remove_ai_smell
+
+    cfg = _resolve_copy_llm(config)
+    if not _llm_ready(cfg):
+        return None
+    hashtags = config.get("content", {}).get("hashtags") or []
+    hashtag_line = " ".join(str(t) for t in hashtags)
+    system = (
+        "你是资深小红书博主，擅长 build in public：用一张真实工作/生活照片，配一段真诚、第一人称、"
+        "有钩子的小红书文案。文字要像真人随手写的，不堆砌、不营销腔。"
+    )
+    user = (
+        f"这张照片的真实场景 / 我在干嘛：{scene.strip()}\n\n"
+        "请写一篇配这张真实照片发布的小红书图文文案。要求：第一人称、真实、有现场感和代入感；"
+        "首行用 # 写一个有钩子的标题（<=22字）；正文 3-6 段短句、口语、有观点；"
+        "结尾抛一个真诚的问题引互动；最后另起一行附 3-6 个话题标签。\n\n"
+        + _playbook(config)
+        + "\n\n"
+        + _HUMANIZE_RULES
+        + "\n\n"
+        + (f"可参考话题标签：{hashtag_line}\n" if hashtag_line else "")
+        + "直接输出文案（Markdown），不要解释、不要 JSON、不要代码围栏。"
+    )
+    try:
+        out = _chat(cfg, [{"role": "system", "content": system}, {"role": "user", "content": user}])
+    except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as exc:
+        print(f"[photo] 生成失败：{exc}")
+        return None
+    out = (out or "").strip()
+    if out.startswith("```"):
+        out = out.strip("`")
+        if out.lower().startswith("markdown"):
+            out = out[8:]
+    return remove_ai_smell(out.strip()) or None

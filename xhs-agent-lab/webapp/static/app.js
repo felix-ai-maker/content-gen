@@ -1595,6 +1595,121 @@ function planTopicRow(t) {
   </div>`;
 }
 
+// ===== 我的数据 =====
+let myposts = [];
+
+async function loadMyposts() {
+  try {
+    const d = await fetchJson("/api/myposts");
+    myposts = d.posts || [];
+    renderMyposts();
+  } catch (_e) {}
+}
+
+async function saveMyposts() {
+  try {
+    const d = await fetchJson("/api/myposts", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ posts: myposts }),
+    });
+    myposts = d.posts || myposts;
+  } catch (_e) {}
+}
+
+function addMypost() {
+  const title = $("mp-title").value.trim();
+  if (!title) {
+    $("mp-msg").textContent = "先填标题。";
+    return;
+  }
+  myposts.push({
+    id: "mp_" + Date.now().toString(36),
+    title,
+    liked: +$("mp-liked").value || 0,
+    collected: +$("mp-collected").value || 0,
+    comment: +$("mp-comment").value || 0,
+    content: $("mp-content").value.trim(),
+  });
+  ["mp-title", "mp-liked", "mp-collected", "mp-comment", "mp-content"].forEach((id) => ($(id).value = ""));
+  $("mp-msg").textContent = "已添加。";
+  saveMyposts();
+  renderMyposts();
+}
+
+function renderMyposts() {
+  const box = $("mp-list");
+  if (!myposts.length) {
+    box.innerHTML = `<div class="disc-empty">还没数据。发布后把标题 + 点赞/收藏/评论填进来。</div>`;
+    return;
+  }
+  const sorted = [...myposts].sort((a, b) => b.liked + b.collected - (a.liked + a.collected));
+  const top = sorted[0].liked + sorted[0].collected;
+  box.innerHTML = sorted
+    .map(
+      (p, i) => `
+    <div class="mypost ${i === 0 && top > 0 ? "winner" : ""}">
+      <div class="mp-body">
+        <strong>${i === 0 && top > 0 ? "🏆 " : ""}${escapeHTML(p.title)}</strong>
+        <span class="mp-metrics">❤ ${p.liked} · ⭐ ${p.collected} · 💬 ${p.comment}</span>
+      </div>
+      ${p.content ? `<button type="button" class="mini primary mp-teardown" data-id="${escapeHTML(p.id)}">拆传播力</button>` : ""}
+      <button type="button" class="mini subtle mp-del" data-id="${escapeHTML(p.id)}" title="删除">✕</button>
+    </div>`
+    )
+    .join("");
+  box.querySelectorAll(".mp-del").forEach((b) => {
+    b.onclick = () => {
+      myposts = myposts.filter((x) => x.id !== b.dataset.id);
+      saveMyposts();
+      renderMyposts();
+    };
+  });
+  box.querySelectorAll(".mp-teardown").forEach((b) => {
+    b.onclick = () => {
+      const p = myposts.find((x) => x.id === b.dataset.id);
+      if (!p || !p.content) return;
+      $("analyze-input").value = p.content;
+      switchView("research");
+      switchResearchTab("analyze");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      analyzeNote();
+    };
+  });
+}
+
+// ===== 照片优先 =====
+function pfToggle() {
+  const body = $("pf-body");
+  const willOpen = body.classList.contains("hidden");
+  body.classList.toggle("hidden", !willOpen);
+  $("pf-toggle").textContent = willOpen ? "收起" : "展开";
+}
+
+async function pfGen() {
+  const scene = $("pf-scene").value.trim();
+  if (scene.length < 4) {
+    $("pf-caption").textContent = "先用一句话描述照片场景 / 你在干嘛。";
+    return;
+  }
+  $("pf-gen").disabled = true;
+  $("pf-caption").textContent = "AI 围绕照片写文案中…";
+  $("pf-copy").classList.add("hidden");
+  try {
+    const d = await fetchJson("/api/photo-caption", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scene }),
+    });
+    $("pf-caption").textContent = d.caption || "（无返回）";
+    $("pf-copy").classList.remove("hidden");
+  } catch (err) {
+    $("pf-caption").textContent = "失败：" + err.message;
+  } finally {
+    $("pf-gen").disabled = false;
+  }
+}
+
 function switchView(view) {
   document.querySelectorAll(".nav-item[data-view]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === view);
@@ -1604,6 +1719,7 @@ function switchView(view) {
   });
   if (view === "discover") loadXhsStatus().catch(() => {});
   if (view === "plan") loadPlan().catch(() => {});
+  if (view === "mydata") loadMyposts().catch(() => {});
 }
 
 document.querySelectorAll(".nav-item[data-view]").forEach((btn) => {
@@ -1613,6 +1729,22 @@ document.querySelectorAll(".dtab").forEach((btn) => {
   btn.onclick = () => switchDiscoverTab(btn.dataset.dtab);
 });
 $("plan-gen").onclick = generatePlan;
+$("mp-add").onclick = addMypost;
+$("pf-toggle").onclick = pfToggle;
+$("pf-gen").onclick = pfGen;
+$("pf-photo").onchange = (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => ($("pf-preview").innerHTML = `<img class="pf-img" src="${r.result}" alt="" />`);
+  r.readAsDataURL(f);
+};
+$("pf-copy").onclick = () => {
+  navigator.clipboard.writeText($("pf-caption").textContent).then(() => {
+    $("pf-copy").textContent = "已复制";
+    setTimeout(() => ($("pf-copy").textContent = "复制文案"), 1200);
+  });
+};
 $("disc-inspire-btn").onclick = discInspire;
 
 document.querySelectorAll(".research-tab").forEach((btn) => {

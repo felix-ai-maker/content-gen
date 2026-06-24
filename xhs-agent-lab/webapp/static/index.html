@@ -20,6 +20,7 @@
       <nav class="nav">
         <button type="button" class="nav-item active" data-view="create"><span class="nav-ico">🛠️</span><span>工作台</span></button>
         <button type="button" class="nav-item" data-view="plan"><span class="nav-ico">📅</span><span>起号计划</span></button>
+        <button type="button" class="nav-item" data-view="mydata"><span class="nav-ico">📊</span><span>我的数据</span></button>
         <button type="button" class="nav-item" data-view="discover"><span class="nav-ico">🔍</span><span>灵感发现</span></button>
         <button type="button" class="nav-item" data-view="research"><span class="nav-ico">🔥</span><span>爆款研究</span></button>
       </nav>
@@ -36,6 +37,29 @@
           <h1 class="view-title">🛠️ 工作台</h1>
           <p class="view-sub">给一句灵感方向，系统产出图文候选；下方是历史发布包，点开即回看。</p>
         </div>
+
+        <section class="panel photo-first collapsed">
+          <div class="pf-head">
+            <strong>📷 照片优先（用你的真实照片 + AI 写文案）</strong>
+            <button id="pf-toggle" type="button" class="mini">展开</button>
+          </div>
+          <div id="pf-body" class="pf-body hidden">
+            <p class="research-note">上传你的真实照片（vibecoding/屏幕/盘面，<strong>只在本地预览、不上传任何服务</strong>）+ 一句场景，AI 写一段配这张图的小红书文案。你发原图 + 文案。</p>
+            <div class="pf-row">
+              <label class="pf-upload">📁 选照片<input id="pf-photo" type="file" accept="image/*" hidden /></label>
+              <input id="pf-scene" type="text" placeholder="一句话：这是什么场景 / 你在干嘛（如：凌晨改通了交易系统第一版）" />
+              <button id="pf-gen" type="button" class="primary">围绕照片写文案</button>
+            </div>
+            <div class="pf-output">
+              <div id="pf-preview" class="pf-preview"></div>
+              <div class="pf-caption-wrap">
+                <pre id="pf-caption" class="research-result"></pre>
+                <button id="pf-copy" type="button" class="mini hidden">复制文案</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <main>
           <section class="panel form">
             <h2>① 输入</h2>
@@ -187,6 +211,26 @@
             <span id="plan-msg" class="settings-msg"></span>
           </div>
           <div id="plan-body" class="plan-body"></div>
+        </section>
+      </div>
+
+      <!-- ===== 视图：我的数据 ===== -->
+      <div class="view" data-view="mydata">
+        <div class="view-head">
+          <h1 class="view-title">📊 我的数据</h1>
+          <p class="view-sub">手动录入你已发布笔记的互动数（不碰你账号、零风控）。系统排出你的赢家，一键拆解自己的爆款沉淀招式。</p>
+        </div>
+        <section class="panel">
+          <div class="mypost-form">
+            <input id="mp-title" type="text" placeholder="笔记标题" />
+            <input id="mp-liked" type="number" min="0" placeholder="点赞" />
+            <input id="mp-collected" type="number" min="0" placeholder="收藏" />
+            <input id="mp-comment" type="number" min="0" placeholder="评论" />
+            <button id="mp-add" type="button" class="primary">+ 添加</button>
+          </div>
+          <textarea id="mp-content" rows="3" placeholder="（可选）粘贴这篇的正文/标题/标签——填了才能「拆传播力」拆解自己的赢家"></textarea>
+          <div id="mp-msg" class="settings-msg"></div>
+          <div id="mp-list" class="mypost-list"></div>
         </section>
       </div>
 

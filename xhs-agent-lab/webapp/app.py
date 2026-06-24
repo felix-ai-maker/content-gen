@@ -282,6 +282,84 @@ def api_put_plan(req: PlanUpdateRequest) -> dict:
     return _load_plan()
 
 
+# --------------------------------------------------------------------------- #
+# 我的数据：手动录入已发布笔记的互动数据（不碰 MCP，零风控），看赢家、拆自己的赢家。
+# --------------------------------------------------------------------------- #
+MYPOSTS_PATH = PROJECT_ROOT / "my_posts.json"
+
+
+def _load_myposts() -> list[dict]:
+    if MYPOSTS_PATH.exists():
+        try:
+            data = json.loads(MYPOSTS_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                data = data.get("posts")
+            if isinstance(data, list):
+                return data
+        except ValueError:
+            pass
+    return []
+
+
+def _to_int(v) -> int:
+    try:
+        return int(str(v).strip() or 0)
+    except ValueError:
+        return 0
+
+
+@app.get("/api/myposts")
+def api_get_myposts() -> dict:
+    return {"posts": _load_myposts()}
+
+
+class MyPostsUpdate(BaseModel):
+    posts: list[dict]
+
+
+@app.put("/api/myposts")
+def api_put_myposts(req: MyPostsUpdate) -> dict:
+    posts = []
+    for item in req.posts or []:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title", "")).strip()
+        if not title:
+            continue
+        posts.append(
+            {
+                "id": str(item.get("id") or uuid.uuid4().hex[:10]),
+                "title": title,
+                "liked": _to_int(item.get("liked")),
+                "collected": _to_int(item.get("collected")),
+                "comment": _to_int(item.get("comment")),
+                "content": str(item.get("content", "")).strip(),
+                "date": str(item.get("date", "")).strip(),
+            }
+        )
+    MYPOSTS_PATH.write_text(json.dumps({"posts": posts}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {"posts": posts}
+
+
+class PhotoCaptionRequest(BaseModel):
+    scene: str
+
+
+@app.post("/api/photo-caption")
+def api_photo_caption(req: PhotoCaptionRequest) -> dict:
+    """照片优先：围绕真实照片场景写小红书文案（照片只在前端预览，不上传）。"""
+    from copy_writer import generate_photo_caption
+
+    scene = (req.scene or "").strip()
+    if len(scene) < 4:
+        raise HTTPException(status_code=400, detail="先用一句话描述这张照片的场景 / 你在干嘛。")
+    _llm_for(_config())
+    caption = generate_photo_caption(scene, _config())
+    if not caption:
+        raise HTTPException(status_code=502, detail="生成失败，稍后重试。")
+    return {"caption": caption}
+
+
 class AnalyzeRequest(BaseModel):
     text: str
 
